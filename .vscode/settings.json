@@ -1,0 +1,17 @@
+{
+    "files.associations": {
+        "dhmp_server.h": "c",
+        "dhmp_hash.h": "c",
+        "stddef.h": "c",
+        "dhmp_client.h": "c",
+        "dhmp_config.h": "c",
+        "dhmp_transport.h": "c",
+        "dhmp.h": "c",
+        "dhmp_dev.h": "c",
+        "dhmp_log.h": "c",
+        "murmur3_hash.h": "c",
+        "dhmp_work.h": "c",
+        "dhmp_task.h": "c",
+        "dhmp_context.h": "c"
+    }
+}

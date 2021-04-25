@@ -1,0 +1,1 @@
+/usr/bin/cc -msse2 -g CMakeFiles/midd.dir/test.c.o -o ../../bin/midd  ../../lib/libmiddlib.a -lxml2 -lpthread -lrdmacm -libverbs -lnuma -lrt -lm -ljson-c -lmemkind 
