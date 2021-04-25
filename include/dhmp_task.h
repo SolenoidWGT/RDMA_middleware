@@ -1,6 +1,5 @@
 #ifndef DHMP_TASK_H
 #define DHMP_TASK_H
-
 struct dhmp_sge
 {
 	void *addr;

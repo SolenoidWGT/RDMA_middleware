@@ -20,7 +20,6 @@
 #include <rdma/rdma_cma.h>
 #include <numa.h>
 #include "json-c/json.h"
-#include "logname.h"
 
 #define DHMP_CACHE_POLICY
 #define DHMP_MR_REUSE_POLICY
@@ -155,7 +154,8 @@ void dhmp_free(void *dhmp_addr);
  *	dhmp_client_init:init the dhmp client
  *	note:client connect the all server
  */
-void dhmp_client_init(size_t size, int server_id);
+// void dhmp_client_init(size_t size, int server_id);
+// void dhmp_client_mid_init(size_t size, int server_id);
 
 /**
  *	dhmp_client_destroy:clean RDMA resources
@@ -167,7 +167,10 @@ void dhmp_client_destroy();
  *	include config.xml read, rdma listen,
  *	register memory, context run. 
  */
-struct dhmp_server * dhmp_server_init();
+// struct dhmp_server * dhmp_server_init();
+
+// void dhmp_server_init(struct dhmp_server * mid_server);
+
 
 /**
  *	dhmp_server_destroy: close the context,

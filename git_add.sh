@@ -7,4 +7,3 @@ git add test
 git add *.txt
 git add *.sh
 git add *.md
-

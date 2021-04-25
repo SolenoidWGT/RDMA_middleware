@@ -1,6 +1,5 @@
 #ifndef DHMP_LOG_H
 #define DHMP_LOG_H
-#include "logname.h"
 enum dhmp_log_level{
 	DHMP_LOG_LEVEL_ERROR,
 	DHMP_LOG_LEVEL_WARN,

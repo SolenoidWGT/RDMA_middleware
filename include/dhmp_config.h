@@ -11,6 +11,8 @@
 #define DHMP_ADDR_LEN 18
 #define DHMA_NIC_NAME_LEN 10
 
+#include "dhmp.h"
+
 struct dhmp_net_info{
 	char	nic_name[DHMA_NIC_NAME_LEN];
 	char	addr[DHMP_ADDR_LEN];

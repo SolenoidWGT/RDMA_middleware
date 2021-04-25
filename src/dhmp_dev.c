@@ -10,7 +10,6 @@
 #include "dhmp_config.h"
 #include "dhmp_context.h"
 #include "dhmp_dev.h"
-
 /*
  * alloc rdma device resource
  */

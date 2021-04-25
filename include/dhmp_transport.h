@@ -1,5 +1,9 @@
 #ifndef DHMP_TRANSPORT_H
 #define DHMP_TRANSPORT_H
+#include "dhmp_context.h"
+#include "dhmp_dev.h"
+#include "dhmp_work.h"
+#include "dhmp_task.h"
 
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
@@ -10,6 +14,11 @@
 /*recv region include poll recv region,normal recv region*/
 #define SINGLE_POLL_RECV_REGION (64*1024*1024)
 #define SINGLE_NORM_RECV_REGION (64*1024)
+
+
+void dhmp_comp_channel_handler(int fd, void* data);
+void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
+										struct dhmp_msg* msg);
 
 enum dhmp_transport_state {
 	DHMP_TRANSPORT_STATE_INIT,
@@ -72,6 +81,9 @@ struct dhmp_send_mr{
 	struct list_head send_mr_entry;
 };
 
+
+struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx);
+
 struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx, 
 													struct dhmp_device* dev,
 													bool is_listen,
@@ -81,7 +93,7 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 int free_trans(struct dhmp_transport* rdma_trans);
 
 
-void dhmp_transport_destroy(struct dhmp_transport *rdma_trans);
+//void dhmp_transport_destroy(struct dhmp_transport *rdma_trans);
 
 
 int dhmp_transport_connect(struct dhmp_transport* rdma_trans,
@@ -91,6 +103,25 @@ int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port);
 
 
 void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr);
+
+
+/**
+ *	dhmp_post_all_recv:loop call the dhmp_post_recv function
+ */
+void dhmp_post_all_recv(struct dhmp_transport *rdma_trans);
+
+void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
+
+
+
+int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, \
+				struct ibv_mr* mr, void* local_addr, int length);
+
+int dhmp_rdma_write(struct dhmp_transport* rdma_trans, struct dhmp_addr_info* addr_info, 
+	struct ibv_mr* mr, void* local_addr, int length);
+
+
+int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length);
 
 
 
