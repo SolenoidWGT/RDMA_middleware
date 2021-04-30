@@ -8,6 +8,8 @@
 #include "../include/dhmp_transport.h"
 #include "../include/dhmp_server.h"
 #include "../include/dhmp_log.h"
+#include "dhmp_client.h"
+
 void dhmp_event_channel_handler(int fd, void* data);
 
 
@@ -349,6 +351,8 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 	rdma_trans->ctx=ctx;
 	rdma_trans->device=dev;
 	rdma_trans->dram_used_size=rdma_trans->nvm_used_size=0;
+	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
+	rdma_trans->is_server = true;
 	
 	err=dhmp_event_channel_create(rdma_trans);
 	if(err)
@@ -548,17 +552,20 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	dhmp_destroy_source(rdma_trans);
-	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_DISCONNECTED;
-	if(server!=NULL)
+	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
+	// 新增判断逻辑，分离server 和 client 的trans连接断开
+	if(server!=NULL && rdma_trans->is_server)
 	{
 		--server->cur_connections;
 		pthread_mutex_lock(&server->mutex_client_list);
 		list_del(&rdma_trans->client_entry);
 		pthread_mutex_unlock(&server->mutex_client_list);
 	}
-	
 	return 0;
 }
+
+
+
 
 static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {

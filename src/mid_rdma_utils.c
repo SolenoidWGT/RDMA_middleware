@@ -1,9 +1,9 @@
 #include "dhmp.h"
 #include "dhmp_transport.h"
-#include "../include/dhmp_work.h"
-#include "../include/dhmp_task.h"
-#include "../include/dhmp_client.h"
-#include "../include/dhmp_log.h"
+#include "dhmp_work.h"
+#include "dhmp_task.h"
+#include "dhmp_client.h"
+#include "dhmp_log.h"
 
 // dhmp_send_task_create
 int dhmp_memory_register(struct ibv_pd *pd, 
@@ -28,5 +28,26 @@ int dhmp_memory_register(struct ibv_pd *pd,
 
 out:
 	free(dmr->addr);
+	return -1;
+}
+
+struct dhmp_transport* dhmp_node_select_by_id(int node_id)
+{
+	if (client->connect_trans[node_id] != NULL &&
+		(client->connect_trans[node_id]->trans_state ==
+		 DHMP_TRANSPORT_STATE_CONNECTED))
+		return client->connect_trans[node_id];
+	return NULL;
+}
+
+
+int client_find_server_id()
+{
+	int i;
+	for(i=0; i<client->config.nets_cnt; i++)
+	{
+		if(client->connect_trans[i] != NULL)
+			return i;
+	}
 	return -1;
 }

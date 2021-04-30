@@ -130,7 +130,10 @@ void dhmp_malloc_work_handler(struct dhmp_work *work)
 	
 	dhmp_post_send(malloc_work->rdma_trans, &msg);
 
-	/*wait for the server return result*/
+	/*wait for the server return result
+		这种写法真的可以吗？当length不为0的时候就返回，
+		如果此时数据才传输了一半这么办
+	*/
 	while(malloc_work->addr_info->nvm_mr.length==0);
 	
 	res_addr=malloc_work->addr_info->nvm_mr.addr;
@@ -332,16 +335,8 @@ void dhmp_send_work_handler(struct dhmp_work *work)
 		++addr_info->write_cnt;
 	else
 		++addr_info->read_cnt;
-#ifdef DHMP_CACHE_POLICY
-	if(addr_info->dram_mr.addr!=NULL)
-		dhmp_rdma_send(send_work, addr_info->dram_mr.addr);
-	else
-	{
-#endif
-		dhmp_rdma_send(send_work, addr_info->nvm_mr.addr);
-#ifdef DHMP_CACHE_POLICY
-	}
-#endif
+
+	dhmp_rdma_send(send_work, addr_info->nvm_mr.addr);
 
 out:
 	addr_info->write_flag=false;
@@ -383,6 +378,7 @@ void *dhmp_work_handle_thread(void *data)
 
 		if(work)
 		{
+
 			switch (work->work_type)
 			{
 				case DHMP_WORK_MALLOC:

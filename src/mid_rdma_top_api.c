@@ -7,7 +7,8 @@
 #include "dhmp_task.h"
 #include "dhmp_work.h"
 #include "dhmp_client.h"
-#include "../include/dhmp_log.h"
+#include "dhmp_log.h"
+#include "mid_rdma_utils.h"
 
 extern struct dhmp_client *client;
 
@@ -54,6 +55,68 @@ int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write)
 	while(!send_work.done_flag);
 	free(work);
 	return 0;
+}
+
+
+void *dhmp_malloc(size_t length, int nodeid)
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_malloc_work malloc_work;
+	struct dhmp_work *work;
+	struct dhmp_addr_info *addr_info;
+	
+	if(length<=0)
+	{
+		ERROR_LOG("length is error.");
+		goto out;
+	}
+
+	/*select which node to alloc nvm memory*/
+	rdma_trans = dhmp_node_select_by_id(nodeid);
+	if(!rdma_trans)
+	{
+		ERROR_LOG("don't exist remote server.");
+		goto out;
+	}
+
+	work=malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("allocate memory error.");
+		goto out;
+	}
+	
+	addr_info=malloc(sizeof(struct dhmp_addr_info));
+	if(!addr_info)
+	{
+		ERROR_LOG("allocate memory error.");
+		goto out_work;
+	}
+	addr_info->nvm_mr.length=0;
+	addr_info->dram_mr.addr=NULL;
+	
+	malloc_work.addr_info=addr_info;
+	malloc_work.rdma_trans=rdma_trans;
+	malloc_work.length=length;
+	malloc_work.done_flag=false;
+
+	work->work_type=DHMP_WORK_MALLOC;
+	work->work_data=&malloc_work;
+
+	pthread_mutex_lock(&client->mutex_work_list);
+	list_add_tail(&work->work_entry, &client->work_list);
+	pthread_mutex_unlock(&client->mutex_work_list);
+	
+	while(!malloc_work.done_flag);
+
+	free(work);
+	
+	return malloc_work.res_addr;
+
+out_work:
+	free(work);
+out:
+	return NULL;
 }
 
 

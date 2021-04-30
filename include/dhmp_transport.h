@@ -17,8 +17,8 @@
 
 
 void dhmp_comp_channel_handler(int fd, void* data);
-void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
-										struct dhmp_msg* msg);
+void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg);
+
 
 enum dhmp_transport_state {
 	DHMP_TRANSPORT_STATE_INIT,
@@ -72,6 +72,8 @@ struct dhmp_transport{
 
 	long dram_used_size;
 	long nvm_used_size;
+
+	bool is_server;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
 	
 	struct list_head client_entry;
 };

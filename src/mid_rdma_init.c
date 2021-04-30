@@ -81,7 +81,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 	/*init normal connection*/
 	memset(client->connect_trans, 0, DHMP_SERVER_NODE_NUM*
 										sizeof(struct dhmp_transport*));
-	for(i=0;i<client->config.nets_cnt;i++)
+	for(i=0; i<client->config.nets_cnt; i++)
 	{
 		// WGT, 跳过自己，不要让client连接本机上启动的server
 		if(server_id == i)
@@ -91,10 +91,14 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 		}
 		INFO_LOG("create the [%d]-th normal transport.",i);
 
-		client->connect_trans[i]=dhmp_transport_create(&client->ctx, 
+		client->connect_trans[i] = dhmp_transport_create(&client->ctx, 
 														dhmp_get_dev_from_client(),
 														false,
 														false);
+		
+
+		client->connect_trans[i]->is_server = false;
+
 		if(!client->connect_trans[i])
 		{
 			ERROR_LOG("create the [%d]-th transport error.",i);
@@ -106,13 +110,13 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 							client->config.net_infos[i].port);
 	}
 
-	for(i=0;i<client->config.nets_cnt;i++)
+	for(i=0; i<client->config.nets_cnt; i++)
 	{
 		if(client->connect_trans[i]==NULL)
 			continue;
 		while(1)
 		{
-			if(client->connect_trans[i]->trans_state<DHMP_TRANSPORT_STATE_CONNECTED)
+			if(client->connect_trans[i]->trans_state < DHMP_TRANSPORT_STATE_CONNECTED)
 				continue;
 			else if(client->connect_trans[i]->trans_state == DHMP_TRANSPORT_STATE_REJECT)
 			{
@@ -126,7 +130,10 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 					ERROR_LOG("create the [%d]-th transport error.",i);
 					continue;
 				}
+				
 				client->connect_trans[i]->node_id = i;
+				client->connect_trans[i]->is_server = false;
+
 				re = dhmp_transport_connect(client->connect_trans[i],
 									client->config.net_infos[i].addr,
 									client->config.net_infos[i].port);
@@ -192,4 +199,22 @@ struct dhmp_server * dhmp_server_init()
 		exit(- 1);
 	return server;
 }
+
+
+void dhmp_server_destroy()
+{
+	INFO_LOG("server destroy start.");
+	pthread_join(server->ctx.epoll_thread, NULL);
+	int err = 0;
+	// err = memkind_destroy_kind(pmem_kind);
+    //     if(err)
+    //     {
+    //             ERROR_LOG("memkind_destroy_kind() error.");
+    //             return;
+    //     }
+		
+	INFO_LOG("server destroy end.");
+	free(server);
+}
+
 

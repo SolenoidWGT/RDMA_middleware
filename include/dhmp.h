@@ -131,7 +131,7 @@ struct dhmp_dram_info{
 /**
  *	dhmp_malloc: remote alloc the size of length region
  */
-void *dhmp_malloc(size_t length);
+void *dhmp_malloc(size_t length, int nodeid);
 
 /**
  *	dhmp_read:read the data from dhmp_addr, write into the local_buf
