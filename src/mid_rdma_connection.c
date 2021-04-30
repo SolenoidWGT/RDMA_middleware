@@ -339,14 +339,12 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 {
 	struct dhmp_transport *rdma_trans;
 	int err=0;
-	
 	rdma_trans=(struct dhmp_transport*)malloc(sizeof(struct dhmp_transport));
 	if(!rdma_trans)
 	{
 		ERROR_LOG("allocate memory error");
 		return NULL;
 	}
-
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_INIT;
 	rdma_trans->ctx=ctx;
 	rdma_trans->device=dev;
@@ -597,6 +595,11 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	*/
 	int node_id = rdma_trans->node_id;
 
+	// rdma_trans->
+	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
+	// undo dhmp_event_channel_create
+	rdma_destroy_event_channel(rdma_trans->event_channel);
+
 	// undo on_cm_route_resolved
 	dhmp_qp_release(rdma_trans);
 
@@ -607,10 +610,8 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	// undo dhmp_memory_register
 	ibv_dereg_mr(rdma_trans->send_mr.mr);
 	ibv_dereg_mr(rdma_trans->recv_mr.mr);
-	// rdma_trans->
-	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
-	// undo dhmp_event_channel_create
-	rdma_destroy_event_channel(rdma_trans->event_channel);
+
+
 	free(rdma_trans->send_mr.addr);
 	// undo malloc
 	free(rdma_trans);

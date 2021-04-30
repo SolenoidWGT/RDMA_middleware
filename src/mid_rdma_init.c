@@ -83,7 +83,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 										sizeof(struct dhmp_transport*));
 	for(i=0; i<client->config.nets_cnt; i++)
 	{
-		// WGT, 跳过自己，不要让client连接本机上启动的server
+		/*server skip himself to avoid connecting himself*/
 		if(server_id == i)
 		{
 			client->connect_trans[i] = NULL;
@@ -137,11 +137,13 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 				re = dhmp_transport_connect(client->connect_trans[i],
 									client->config.net_infos[i].addr,
 									client->config.net_infos[i].port);
+				/* main thread sleep a while, wait dhmp_event_channel_handler finish connection*/
 				sleep(1);
 			}
 			else if(client->connect_trans[i]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED )
 				break;
 		}
+		DEBUG_LOG("Peer Server %d has been connnected!", i);
 		client->read_mr[i] = malloc(sizeof(struct dhmp_send_mr));
 		void* tmp_buf = malloc(buffer_size);
 		memset(tmp_buf, 0, buffer_size);

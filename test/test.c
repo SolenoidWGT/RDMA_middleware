@@ -28,10 +28,10 @@ int main(int argc,char *argv[])
 	/*init list about rdma device*/
 	mid_server = dhmp_server_init();
     INFO_LOG("server->server_id is %d", mid_server->server_id);
-	dhmp_client_init(1024, mid_server->server_id);
-
+	dhmp_client_init(SIZE*2, mid_server->server_id);
+	/* wait connect establish*/
+	sleep(5);
 	char * base = (char * )malloc(SIZE * sizeof(char));
-	base = "1231313";
 	void* remote_addr = dhmp_malloc(SIZE, client_find_server_id());
 	dhmp_send(remote_addr, base, SIZE, true);
 	dhmp_send(remote_addr, base, SIZE, false);

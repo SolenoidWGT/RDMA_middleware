@@ -60,6 +60,7 @@ void dhmp_dev_list_init(struct list_head * dev_list_ptr)
 		ERROR_LOG ( "failed to get the rdma device list." );
 		return;
 	}
+	INFO_LOG ( "num_devices is %d ", num_devices);
 
 	for ( i=0; i<num_devices; i++ )
 	{

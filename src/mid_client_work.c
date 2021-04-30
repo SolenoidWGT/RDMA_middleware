@@ -38,7 +38,7 @@ int dhmp_rdma_send(struct dhmp_send_work * send_work, void* server_addr)
 	else
 	{
 		msg.data_size=sizeof(struct dhmp_send_request);
-		msg.data=&req_msg;
+		msg.data= &req_msg;
 	}
 	dhmp_post_send(send_work->rdma_trans, &msg);
 	/*wait for the server return result*/

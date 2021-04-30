@@ -20,6 +20,7 @@ struct dhmp_context{
 	int epoll_fd;
 	bool stop;
 	pthread_t epoll_thread;
+	
 };
 
 int dhmp_context_init(struct dhmp_context *ctx);

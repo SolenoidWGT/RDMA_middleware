@@ -74,7 +74,6 @@ struct dhmp_transport{
 	long nvm_used_size;
 
 	bool is_server;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
-	
 	struct list_head client_entry;
 };
 

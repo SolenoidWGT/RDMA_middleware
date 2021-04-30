@@ -12,14 +12,7 @@
 #include "../include/dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
-
-
-
-
-
-
-
-
+#include "mid_rdma_utils.h"
 
 static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
 												struct dhmp_msg* msg)
@@ -28,25 +21,23 @@ static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
 	struct dhmp_msg res_msg;
 	bool res=true;
 	struct dhmp_device * dev;
-	struct ibv_mr * mr;
+	struct ibv_mr * mr = NULL;
+	size_t re_length = 0;
+	char * addr;
 
 
 	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_mc_request));
 	INFO_LOG ( "client req size %d",  response.req_info.req_size);
+	re_length = response.req_info.req_size;
 
 
-	/* NVM 内存分配*/
-	void * addr= numa_alloc_onnode(response.req_info.req_size, server->config.mem_infos->nvm_node);
-
-	/*内存注册*/
 	dev=dhmp_get_dev_from_server();
-	mr= ibv_reg_mr(dev->pd,
-					addr, response.req_info.req_size, 
-					IBV_ACCESS_LOCAL_WRITE|
-					IBV_ACCESS_REMOTE_READ|
-					IBV_ACCESS_REMOTE_WRITE);
-	mr->addr = addr;
-	mr->length = response.req_info.req_size;
+	mr = dhmp_memory_malloc_register(dev->pd, re_length, 2);
+	if(!mr){
+		ERROR_LOG("dhmp_malloc_request_handler Fail!");
+		goto req_error;
+	}
+
 	memcpy(&response.mr, mr, sizeof(struct ibv_mr));
 	DEBUG_LOG("malloc addr %p lkey %ld length is %d",
 			mr->addr, mr->lkey, mr->length );
@@ -116,7 +107,9 @@ static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct 
 	size_t length = response.req_info.req_size;
 	INFO_LOG ( "client operate size %d",length);
 
-	/*get server addr from dhmp_addr*/
+	/*get server addr from dhmp_addr
+		server_addr 来自client向server请求的地址
+	*/
 	server_addr = response.req_info.server_addr;
 
 	res_msg.msg_type=DHMP_MSG_SEND_RESPONSE;
@@ -143,12 +136,14 @@ static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct 
 static void dhmp_send_response_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
 {
 	struct dhmp_send_response response_msg;
+
 	memcpy(&response_msg, msg->data, sizeof(struct dhmp_send_response));
+
 
 	if (!response_msg.req_info.is_write)
 	{
-		memcpy(response_msg.req_info.local_addr,
-			   (msg->data + sizeof(struct dhmp_send_response)), response_msg.req_info.req_size);
+		memcpy(response_msg.req_info.local_addr, 
+				msg->data + sizeof(struct dhmp_send_response), response_msg.req_info.req_size);
 	}
 
 	struct dhmp_send_work * task = response_msg.req_info.task;
