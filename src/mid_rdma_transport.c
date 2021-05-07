@@ -51,7 +51,7 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr)
 	
 	err=ibv_post_recv(rdma_trans->qp, &recv_wr, &bad_wr_ptr);
 	if(err)
-		ERROR_LOG("ibv post recv error.");
+		ERROR_LOG("ibv post recv error, the reason is %s", strerror(errno));
 	
 }
 

@@ -114,6 +114,7 @@ struct dhmp_mc_response{
 /*WGT: dhmp malloc Buff request msg*/
 struct dhmp_buff_request{
 	int node_id;
+	struct dhmp_buff_malloc_work * work;
 	struct dhmp_addr_info * buff_addr_info;
 	struct dhmp_addr_info * buff_mate_addr_info;
 };
@@ -159,7 +160,7 @@ struct dhmp_dram_info{
 
 
 
-void dhmp_buff_malloc(int nodeid, void * buff_mate_addr, void* buff_addr);
+void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr);
 
 /**
  *	dhmp_malloc: remote alloc the size of length region

@@ -4,7 +4,7 @@
  * @Author: sueRimn
  * @Date: 2021-04-25 17:46:17
  * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-07 11:40:49
+ * @LastEditTime: 2021-05-07 14:44:12
  */
 #include <stdio.h>
 #include <sys/time.h>
@@ -30,8 +30,6 @@
 //unsigned long get_mr_time = 0;
 
 
-
-
 int main(int argc,char *argv[])
 {
 	struct dhmp_server * mid_server;
@@ -44,8 +42,11 @@ int main(int argc,char *argv[])
 		INFO_LOG("Please wait peer server init, left time is %d s", WAIT_TIME-i);
 		sleep(1);
 	}
+	INFO_LOG("Node [%d] server has finished init", mid_server->server_id);
+
 	dhmp_client_init(SIZE*2, mid_server->server_id);
-	INFO_LOG("server [%d] has finished init", mid_server->server_id);
+
+	INFO_LOG("server [%d] has extablished connecting with node [%d]", mid_server->server_id, find_next_node(server->server_id));
 
 	/* wait connect establish*/
 	for(i =0; i<WAIT_TIME; i++){

@@ -121,7 +121,7 @@ out:
 
 
 // buff
-void dhmp_buff_malloc(int nodeid, void * buff_mate_addr, void* buff_addr)
+void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 {
 	struct dhmp_transport *rdma_trans=NULL;
 	struct dhmp_buff_malloc_work buff_malloc_work;
@@ -182,8 +182,8 @@ void dhmp_buff_malloc(int nodeid, void * buff_mate_addr, void* buff_addr)
 	while(!buff_malloc_work.done_flag);
 
 	free(work);
-	buff_mate_addr = buff_malloc_work.buff_mate_addr;
-	buff_addr = buff_malloc_work.buff_addr;
+	*buff_mate_addr = buff_malloc_work.buff_mate_addr;
+	*buff_addr = buff_malloc_work.buff_addr;
 
 	//return malloc_work.res_addr;
 out:

@@ -88,6 +88,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 		{
 			client->node_id = i;
 			client->connect_trans[i] = NULL;
+			INFO_LOG("This node id is %d",	i);
 			continue;
 		}
 		INFO_LOG("create the [%d]-th normal transport.",i);
@@ -121,6 +122,8 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 				continue;
 			else if(client->connect_trans[i]->trans_state == DHMP_TRANSPORT_STATE_REJECT)
 			{
+				free_trans(client->connect_trans[i]);
+				free(client->connect_trans[i]);
 				client->connect_trans[i]=dhmp_transport_create(&client->ctx, 
 												dhmp_get_dev_from_client(),
 												false,

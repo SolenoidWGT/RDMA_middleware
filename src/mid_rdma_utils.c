@@ -113,5 +113,5 @@ int find_next_node(int id)
 {
 	if(id >= client->config.nets_cnt-1)
 		return -1;
-	return client->connect_trans[id + 1] ;
+	return  id + 1;
 }

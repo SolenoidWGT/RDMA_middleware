@@ -4,7 +4,7 @@
  * @Author: sueRimn
  * @Date: 2021-05-06 09:35:21
  * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-07 11:47:38
+ * @LastEditTime: 2021-05-07 16:17:36
  */
 #ifndef LOG_COPY_H
 #define LOG_COPY_H
@@ -47,7 +47,7 @@ typedef struct Ring_buff_remote
 
 typedef struct Ring_buff_local_mate
 {
-    struct dhmp_mr* buff_mate_mr; 
+    struct dhmp_mr buff_mate_mr; 
 }LocalMateRingbuff;
 
 typedef struct ring_buff_local
@@ -57,7 +57,7 @@ typedef struct ring_buff_local
     int size;                     
     
     void * buff_addr;
-    struct dhmp_mr* buff_mr;
+    struct dhmp_mr buff_mr;
 }LocalRingbuff;
 
 

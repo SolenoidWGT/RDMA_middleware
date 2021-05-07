@@ -97,7 +97,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 	size_t re_length = 0;
 	char * addr;
 
-	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_mc_request));
+	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_buff_request));
 	INFO_LOG ( "Upstream node id is  %d",  response.req_info.node_id);
 	response.node_id = server->server_id;
 	
@@ -105,7 +105,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 	if(local_recv_buff == NULL && local_recv_buff_mate == NULL)
 	{
 		local_recv_buff_mate = (LocalMateRingbuff*) malloc(sizeof(LocalMateRingbuff));
-		re = dhmp_memory_register(dev->pd, local_recv_buff_mate->buff_mate_mr, sizeof(LocalRingbuff));
+		re = dhmp_memory_register(dev->pd, &local_recv_buff_mate->buff_mate_mr, sizeof(LocalRingbuff));
 
 		if(re !=0)
 		{
@@ -116,29 +116,29 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 			goto req_error;
 		}
 
-		local_recv_buff = (LocalRingbuff*) local_recv_buff_mate->buff_mate_mr->addr;
+		local_recv_buff = (LocalRingbuff*) local_recv_buff_mate->buff_mate_mr.addr;
 		local_recv_buff->wr_pointer = 0;
 		local_recv_buff->rd_pointer = 0;
 		local_recv_buff->size = 0;
 		
 
-		re =  dhmp_memory_register(dev->pd, local_recv_buff->buff_mr, BUFFER_SIZE);
+		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, BUFFER_SIZE);
 		if(re !=0)
 		{
 			ERROR_LOG("BUFF: malloc and register buff Fail!");
-			ibv_dereg_mr(local_recv_buff_mate->buff_mate_mr->mr);
-			free(local_recv_buff_mate->buff_mate_mr->addr);
+			ibv_dereg_mr(local_recv_buff_mate->buff_mate_mr.mr);
+			free(local_recv_buff_mate->buff_mate_mr.addr);
 			free(local_recv_buff_mate);
 			local_recv_buff_mate = NULL;
 			local_recv_buff= NULL;
 			goto req_error;
 		}
-		local_recv_buff->buff_addr = local_recv_buff->buff_mr->addr;
+		local_recv_buff->buff_addr = local_recv_buff->buff_mr.addr;
 	}
 
-	memcpy(&response.mr_buff, local_recv_buff_mate->buff_mate_mr, sizeof(struct ibv_mr));
+	memcpy(&response.mr_buff, &local_recv_buff_mate->buff_mate_mr, sizeof(struct ibv_mr));
 	
-	memcpy(&response.mr_data, local_recv_buff->buff_mr, sizeof(struct ibv_mr));
+	memcpy(&response.mr_data, &local_recv_buff->buff_mr, sizeof(struct ibv_mr));
 
 	DEBUG_LOG("BUFF: malloc Buffer addr sucess");
 
@@ -182,6 +182,7 @@ static void dhmp_malloc_buff_response_handler(struct dhmp_transport* rdma_trans,
 
 	DEBUG_LOG("response buff mr addr %p", 			buff_addr_info->nvm_mr.addr);
 	DEBUG_LOG("response buff matedata mr addr %p",  buff_mate_addr_info->nvm_mr.addr);
+	response_msg.req_info.work->done_flag_recv = true;
 }
 
 
@@ -290,6 +291,17 @@ void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
 		case DHMP_MSG_SEND_RESPONSE:
 			dhmp_send_response_handler(rdma_trans, msg);
 			break;
+
+		// WGT
+		case DHMP_BUFF_MALLOC_REQUEST:
+			dhmp_malloc_buff_request_handler(rdma_trans, msg);
+			break;
+		case DHMP_BUFF_MALLOC_RESPONSE:
+			dhmp_malloc_buff_response_handler(rdma_trans, msg);
+			break;
+		case DHMP_BUFF_MALLOC_ERROR:
+			break;
+
 		case DHMP_MSG_MEM_CHANGE:
 			//dhmp_mem_change_handle(rdma_trans, msg);
 			break;

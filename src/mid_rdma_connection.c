@@ -452,7 +452,7 @@ static int on_cm_route_resolved(struct rdma_cm_event* event, struct dhmp_transpo
 		ERROR_LOG("rdma connect error.");
 		goto cleanqp;
 	}
-
+	INFO_LOG("on_cm_route_resolved sucess!");
 	dhmp_post_all_recv(rdma_trans);
 	return retval;
 
@@ -544,6 +544,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 			sizeof(rdma_trans->peer_addr));
 	
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTED;
+	INFO_LOG("on_cm_established sucess!");
 	return retval;
 }
 
@@ -582,9 +583,13 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 // WGT
 static int on_cm_rejected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
-	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_REJECT;
 	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server [%d]-th", rdma_trans->node_id);
-	free_trans(rdma_trans);
+	/*
+		注意，不能在这里面销毁trans，因为on_cm_rejected是在：dhmp_event_channel_handler 的 rdma_get_cm_event 循环中
+		如果在这里销毁就会产生未定义的行为，产生错误。
+	*/
+	// free_trans(rdma_trans);
+	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_REJECT;
 	return 0;
 }
 
@@ -606,27 +611,34 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	*/
 	int node_id = rdma_trans->node_id;
 
-	// rdma_trans->
-	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
-	// undo dhmp_event_channel_create
-	rdma_destroy_event_channel(rdma_trans->event_channel);
+	// undo dhmp_transport_create
+	// undo dhmp_memory_register
+	ibv_dereg_mr(rdma_trans->send_mr.mr);
+	ibv_dereg_mr(rdma_trans->recv_mr.mr);
+	if(rdma_trans->send_mr.addr)
+		free(rdma_trans->send_mr.addr);
 
 	// undo on_cm_route_resolved
 	dhmp_qp_release(rdma_trans);
 
 	// undo dhmp_transport_connect
+	// 必须先释放qp，再调用这个函数
 	rdma_destroy_id(rdma_trans->cm_id);
 
-	// undo dhmp_transport_create
-	// undo dhmp_memory_register
-	ibv_dereg_mr(rdma_trans->send_mr.mr);
-	ibv_dereg_mr(rdma_trans->recv_mr.mr);
+	// rdma_trans->
+	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
 
+	// undo dhmp_event_channel_create
+	// 必须先销毁与事件通道关联的所有 rdma_cm_id，并且所有返回的事件必须在调用此函数之前被确认。
+	if(rdma_trans->event_channel)
+		rdma_destroy_event_channel(rdma_trans->event_channel);
 
-	free(rdma_trans->send_mr.addr);
 	// undo malloc
-	free(rdma_trans);
+	// free(rdma_trans);
+	// rdma_trans = NULL;
+	
 	INFO_LOG("Free rdma_trans with server [%d]-th", node_id);
+	INFO_LOG("rdma_trans state is %d",  rdma_trans->trans_state);
 	return 0;
 }
 

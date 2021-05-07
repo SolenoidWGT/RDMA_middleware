@@ -171,6 +171,7 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 	req_msg.node_id = client->node_id;
 	req_msg.buff_addr_info 		= buff_malloc_work->buff_addr_info;
 	req_msg.buff_mate_addr_info	= buff_malloc_work->buff_mate_addr_info;
+	req_msg.work = buff_malloc_work;
 	
 	msg.msg_type = DHMP_BUFF_MALLOC_REQUEST;
 	msg.data_size = sizeof(struct dhmp_buff_request);

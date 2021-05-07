@@ -4,7 +4,7 @@
  * @Author: sueRimn
  * @Date: 2021-05-06 09:34:47
  * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-07 11:39:43
+ * @LastEditTime: 2021-05-07 16:42:38
  */
 
 
@@ -137,14 +137,16 @@ void buff_init()
     remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
     memset(remote_buff, 0, sizeof(RemoteRingbuff));
 
-    if(find_next_node(server->server_id) == -1){
+    int next_node = find_next_node(server->server_id);
+
+    if( next_node == -1){
         // 尾节点
         DEBUG_LOG("Tail node is %d", server->server_id);
     }else
     {
         // 分配下游节点的buff
-        int next_node = client_find_server_id();
-        dhmp_buff_malloc(next_node, remote_buff->buff_mate, remote_buff->buff);
+        DEBUG_LOG("Next node id is %d", next_node);
+        dhmp_buff_malloc(next_node, &(remote_buff->buff_mate), &(remote_buff->buff));
         if(!remote_buff->buff_mate || !remote_buff->buff)
         {
             ERROR_LOG("Init buff fail!");
@@ -156,6 +158,5 @@ void buff_init()
     }
 
     // void * peer_buff_mate = dhmp_malloc(sizeof(Ringbuff), client_find_server_id());
-    // dhmp_write(peer_buff_mate, local_buff, sizeof(Ringbuff), 0);
 }
 
