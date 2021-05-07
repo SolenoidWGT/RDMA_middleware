@@ -155,6 +155,72 @@ void dhmp_malloc_work_handler(struct dhmp_work *work)
 	malloc_work->done_flag=true;
 }
 
+
+void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
+{
+	struct dhmp_buff_malloc_work *buff_malloc_work;
+	struct dhmp_msg msg;
+	struct dhmp_buff_request req_msg;
+
+	void *buff_addr=NULL;
+	void *buff_mate_addr=NULL;
+
+	buff_malloc_work = (struct dhmp_buff_malloc_work*)work->work_data;
+	
+	/*build malloc request msg*/
+	req_msg.node_id = client->node_id;
+	req_msg.buff_addr_info 		= buff_malloc_work->buff_addr_info;
+	req_msg.buff_mate_addr_info	= buff_malloc_work->buff_mate_addr_info;
+	
+	msg.msg_type = DHMP_BUFF_MALLOC_REQUEST;
+	msg.data_size = sizeof(struct dhmp_buff_request);
+	msg.data= &req_msg;
+	
+	dhmp_post_send(buff_malloc_work->rdma_trans, &msg);
+
+	/*wait for the server return result
+		这种写法真的可以吗？当length不为0的时候就返回，
+		如果此时数据才传输了一半这么办
+	*/
+	while(buff_malloc_work->done_flag_recv == 0);
+	
+	buff_addr = buff_malloc_work->buff_addr_info->nvm_mr.addr;
+	buff_mate_addr = buff_malloc_work->buff_mate_addr_info->nvm_mr.addr;
+	
+	DEBUG_LOG ("get buff_addr addr %p, buff_mate_addr %p", buff_addr, buff_mate_addr);
+	
+	if(buff_addr==NULL || buff_mate_addr==NULL)
+	{
+		free(buff_malloc_work->buff_addr_info);
+		free(buff_malloc_work->buff_mate_addr_info);
+	}
+	else
+	{
+		buff_addr	   = dhmp_transfer_dhmp_addr(buff_malloc_work->rdma_trans,
+										buff_malloc_work->buff_addr_info->nvm_mr.addr);
+		
+		buff_mate_addr = dhmp_transfer_dhmp_addr(buff_malloc_work->rdma_trans,
+										buff_malloc_work->buff_mate_addr_info->nvm_mr.addr);
+
+
+		buff_malloc_work->buff_addr_info->node_index=dhmp_get_node_index_from_addr(buff_addr);
+		buff_malloc_work->buff_mate_addr_info->node_index=dhmp_get_node_index_from_addr(buff_mate_addr);
+
+
+		buff_malloc_work->buff_addr_info->write_flag=false;
+		buff_malloc_work->buff_mate_addr_info->write_flag=false;
+
+		dhmp_addr_info_insert_ht(buff_addr, buff_malloc_work->buff_addr_info);
+		dhmp_addr_info_insert_ht(buff_mate_addr, buff_malloc_work->buff_mate_addr_info);
+	}
+	
+	buff_malloc_work->buff_addr      = buff_addr;
+	buff_malloc_work->buff_mate_addr = buff_mate_addr;
+	buff_malloc_work->done_flag=true;
+}
+
+
+
 void *dhmp_transfer_normal_addr(void *dhmp_addr)
 {
 	long long node_index, ll_addr;
@@ -262,20 +328,10 @@ void dhmp_read_work_handler(struct dhmp_work *work)
 	while(addr_info->write_flag);
 	
 	++addr_info->read_cnt;
-#ifdef DHMP_CACHE_POLICY	
-	if(addr_info->dram_mr.addr!=NULL)
-	{
-		dhmp_rdma_read(rwork->rdma_trans, &addr_info->dram_mr,
-					rwork->local_addr, rwork->length);
-	}
-	else
-	{
-#endif	
-		dhmp_rdma_read(rwork->rdma_trans, &addr_info->nvm_mr,
-					rwork->local_addr, rwork->length);
-#ifdef DHMP_CACHE_POLICY		
-	}
-#endif
+
+	dhmp_rdma_read(rwork->rdma_trans, &addr_info->nvm_mr,
+				rwork->local_addr, rwork->length, rwork->offset);	// WGT
+
 
 out:
 	rwork->done_flag=true;
@@ -303,8 +359,8 @@ void dhmp_write_work_handler(struct dhmp_work *work)
 	
 	++addr_info->write_cnt;
 
-    dhmp_rdma_write(wwork->rdma_trans, addr_info, &addr_info->nvm_mr, 
-                wwork->local_addr, wwork->length);
+	dhmp_rdma_write(wwork->rdma_trans, addr_info, &addr_info->nvm_mr,
+				wwork->local_addr, wwork->length, wwork->offset);			
 
 
 out:
@@ -402,6 +458,9 @@ void *dhmp_work_handle_thread(void *data)
 					break;
 				case DHMP_WORK_CLOSE:
 					dhmp_close_work_handler(work);
+					break;
+				case DHMP_BUFF_MALLOC:
+					dhmp_buff_malloc_work_handler(work);
 					break;
 				default:
 					ERROR_LOG("work exist error.");

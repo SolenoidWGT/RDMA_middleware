@@ -4,7 +4,7 @@
 #include "dhmp_task.h"
 #include "dhmp_client.h"
 #include "dhmp_log.h"
-
+#include "mid_rdma_utils.h"
 
 // void mm()
 // {
@@ -28,6 +28,8 @@
 // dhmp_send_task_create
 
 // dhmp_send_task_create
+
+
 int dhmp_memory_register(struct ibv_pd *pd, 
 									struct dhmp_mr *dmr, size_t length)
 {
@@ -38,8 +40,11 @@ int dhmp_memory_register(struct ibv_pd *pd,
 		return -1;
 	}
 
-	dmr->mr=ibv_reg_mr(pd, dmr->addr, length, IBV_ACCESS_LOCAL_WRITE);
-	if(!dmr->mr)
+	dmr->mr=ibv_reg_mr(pd, dmr->addr, length,  IBV_ACCESS_LOCAL_WRITE|
+												IBV_ACCESS_REMOTE_READ|
+												IBV_ACCESS_REMOTE_WRITE|
+												IBV_ACCESS_REMOTE_ATOMIC);
+	if(!dmr->mr)	
 	{
 		ERROR_LOG("rdma register memory error.");
 		goto out;
@@ -68,7 +73,8 @@ struct ibv_mr * dhmp_memory_malloc_register(struct ibv_pd *pd, size_t length, in
 	
 	mr=ibv_reg_mr(pd, addr, length, IBV_ACCESS_LOCAL_WRITE|
 									IBV_ACCESS_REMOTE_READ|
-									IBV_ACCESS_REMOTE_WRITE);
+									IBV_ACCESS_REMOTE_WRITE|
+									IBV_ACCESS_REMOTE_ATOMIC);
 	if(!mr)
 	{
 		ERROR_LOG("rdma register memory error.");
@@ -101,4 +107,11 @@ int client_find_server_id()
 			return i;
 	}
 	return -1;
+}
+
+int find_next_node(int id)
+{
+	if(id >= client->config.nets_cnt-1)
+		return -1;
+	return client->connect_trans[id + 1] ;
 }

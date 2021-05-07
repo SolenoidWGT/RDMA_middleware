@@ -1,3 +1,11 @@
+/*
+ * @Descripttion: 
+ * @version: 
+ * @Author: sueRimn
+ * @Date: 2021-04-25 17:46:17
+ * @LastEditors: sueRimn
+ * @LastEditTime: 2021-05-06 21:00:13
+ */
 #ifndef DHMP_CLIENT_H
 #define DHMP_CLIENT_H
 
@@ -7,6 +15,7 @@
 
 struct dhmp_client{
 	/* data */
+	int node_id;
 	struct dhmp_context ctx;
 	struct dhmp_config config;
 	struct list_head dev_list;

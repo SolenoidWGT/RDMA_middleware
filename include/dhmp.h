@@ -52,6 +52,9 @@
 
 
 extern struct memkind * pmem_kind;
+
+
+
 enum dhmp_msg_type{
 	DHMP_MSG_MALLOC_REQUEST,
 	DHMP_MSG_MALLOC_RESPONSE,
@@ -67,7 +70,11 @@ enum dhmp_msg_type{
 	DHMP_MSG_SERVER_INFO_RESPONSE,
 	DHMP_MSG_CLOSE_CONNECTION,
 	DHMP_MSG_SEND_REQUEST,
-	DHMP_MSG_SEND_RESPONSE
+	DHMP_MSG_SEND_RESPONSE,
+
+	DHMP_BUFF_MALLOC_REQUEST,
+	DHMP_BUFF_MALLOC_RESPONSE,
+	DHMP_BUFF_MALLOC_ERROR,
 };
 
 /*struct dhmp_msg:use for passing control message*/
@@ -100,6 +107,28 @@ struct dhmp_mc_response{
 	struct ibv_mr mr;
 };
 
+
+
+
+
+/*WGT: dhmp malloc Buff request msg*/
+struct dhmp_buff_request{
+	int node_id;
+	struct dhmp_addr_info * buff_addr_info;
+	struct dhmp_addr_info * buff_mate_addr_info;
+};
+
+/*WGT: dhmp malloc Buff response msg*/
+struct dhmp_buff_response{
+	struct dhmp_buff_request req_info;
+	struct ibv_mr mr_buff;
+	struct ibv_mr mr_data;
+	int node_id;
+};
+
+
+
+
 /*dhmp free memory request msg*/
 struct dhmp_free_request{
 	struct dhmp_addr_info *addr_info;
@@ -128,6 +157,10 @@ struct dhmp_dram_info{
 	struct ibv_mr dram_mr;
 };
 
+
+
+void dhmp_buff_malloc(int nodeid, void * buff_mate_addr, void* buff_addr);
+
 /**
  *	dhmp_malloc: remote alloc the size of length region
  */
@@ -136,12 +169,12 @@ void *dhmp_malloc(size_t length, int nodeid);
 /**
  *	dhmp_read:read the data from dhmp_addr, write into the local_buf
  */
-int dhmp_read(void *dhmp_addr, void * local_buf, size_t length);
+int dhmp_read(void *dhmp_addr, void * local_buf, size_t count, off_t offset, bool is_atomic);
 
 /**
  *	dhmp_write:write the data in local buf into the dhmp_addr position
  */
-int dhmp_write(void *dhmp_addr, void * local_buf, size_t length);
+int dhmp_write(void *dhmp_addr, void * local_buf, size_t length, off_t offset, bool is_atomic);
 
 int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write);
 

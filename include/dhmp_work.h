@@ -1,6 +1,17 @@
+/*
+ * @Descripttion: 
+ * @version: 
+ * @Author: sueRimn
+ * @Date: 2021-04-25 17:46:17
+ * @LastEditors: Please set LastEditors
+ * @LastEditTime: 2021-05-07 00:32:34
+ */
 #ifndef DHMP_WORK_H
 #define DHMP_WORK_H
+#include "dhmp.h"
+#include "dhmp_transport.h"
 
+//WGT
 struct dhmp_rw_work{
 	struct dhmp_transport *rdma_trans;
 	void *dhmp_addr;
@@ -8,6 +19,8 @@ struct dhmp_rw_work{
 	struct dhmp_send_mr *smr;
 	size_t length;
 	bool done_flag;
+	off_t offset;	
+	bool is_atomic;
 };
 
 struct dhmp_malloc_work{
@@ -17,6 +30,20 @@ struct dhmp_malloc_work{
 	size_t length;
 	bool done_flag;
 };
+
+
+/*WGT: dhmp malloc Buff work*/
+struct dhmp_buff_malloc_work{
+	struct dhmp_transport *rdma_trans;
+	struct dhmp_addr_info * buff_addr_info;
+	struct dhmp_addr_info * buff_mate_addr_info;
+	void * buff_addr;
+	void * buff_mate_addr;
+	bool done_flag_recv;
+	bool done_flag;
+};
+
+
 
 struct dhmp_free_work{
 	struct dhmp_transport *rdma_trans;
@@ -47,7 +74,9 @@ enum dhmp_work_type{
 	DHMP_WORK_POLL,
 	DHMP_WORK_CLOSE,
 	DHMP_WORK_DONE,
-	DHMP_WORK_SEND
+	DHMP_WORK_SEND,
+
+	DHMP_BUFF_MALLOC
 };
 
 struct dhmp_work{

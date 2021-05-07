@@ -120,4 +120,167 @@ out:
 }
 
 
+// buff
+void dhmp_buff_malloc(int nodeid, void * buff_mate_addr, void* buff_addr)
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_buff_malloc_work buff_malloc_work;
+	struct dhmp_work *work;
+	struct dhmp_addr_info * buff_addr_info;
+	struct dhmp_addr_info * buff_mate_addr_info;
+	
+
+	/*select which node to alloc nvm memory*/
+	rdma_trans = dhmp_node_select_by_id(nodeid);
+	if(!rdma_trans)
+	{
+		ERROR_LOG("don't exist remote server.");
+		goto out;
+	}
+
+	work = malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("allocate memory error.");
+		goto out;
+	}
+	// addr_info 不要free，其会被插入到hash表中。
+	buff_addr_info = malloc(sizeof(struct dhmp_addr_info));
+	buff_mate_addr_info = malloc(sizeof(struct dhmp_addr_info));
+
+	if(!buff_addr_info || !buff_mate_addr_info)
+	{
+		ERROR_LOG("allocate memory error.");
+		goto out_work;
+	}
+
+
+	buff_addr_info->nvm_mr.length=0;
+	buff_addr_info->dram_mr.addr=NULL;
+
+	buff_mate_addr_info->nvm_mr.length = 0;
+	buff_mate_addr_info->dram_mr.addr = NULL;
+
+
+	
+	buff_malloc_work.buff_addr_info=buff_addr_info;
+	buff_malloc_work.buff_mate_addr_info=buff_mate_addr_info;
+
+
+	buff_malloc_work.rdma_trans=rdma_trans;
+
+	buff_malloc_work.done_flag=false;
+	buff_malloc_work.done_flag_recv = false;
+
+	work->work_type = DHMP_BUFF_MALLOC;
+	work->work_data = &buff_malloc_work;
+
+	pthread_mutex_lock(&client->mutex_work_list);
+	list_add_tail(&work->work_entry, &client->work_list);
+	pthread_mutex_unlock(&client->mutex_work_list);
+	
+	while(!buff_malloc_work.done_flag);
+
+	free(work);
+	buff_mate_addr = buff_malloc_work.buff_mate_addr;
+	buff_addr = buff_malloc_work.buff_addr;
+
+	//return malloc_work.res_addr;
+out:
+	return;
+
+out_work:
+	free(work);
+}
+
+
+
+// WGT
+int dhmp_read(void *dhmp_addr, void * local_buf, size_t count, 
+					off_t offset, bool is_atomic)
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_rw_work rwork;
+	struct dhmp_work *work;
+	
+	rdma_trans=dhmp_get_trans_from_addr(dhmp_addr);;
+	if(!rdma_trans||rdma_trans->trans_state!=DHMP_TRANSPORT_STATE_CONNECTED)
+	{
+		ERROR_LOG("rdma connection error.");
+		return -1;
+	}
+
+	work=malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("allocate memory error.");
+		return -1;
+	}
+	
+	rwork.done_flag=false;
+	rwork.length=count;
+	rwork.local_addr=local_buf;
+	rwork.dhmp_addr=dhmp_addr;	
+	rwork.rdma_trans=rdma_trans;
+	rwork.offset = offset; // wgt
+	rwork.is_atomic = is_atomic;// wgt
+	
+	work->work_type=DHMP_WORK_READ;
+	work->work_data=&rwork;
+	
+	pthread_mutex_lock(&client->mutex_work_list);
+	list_add_tail(&work->work_entry, &client->work_list);
+	pthread_mutex_unlock(&client->mutex_work_list);
+
+	while(!rwork.done_flag);
+
+	free(work);
+	
+	return 0;
+}
+
+// WGT
+int dhmp_write(void *dhmp_addr, void * local_buf, size_t count, 
+						off_t offset, bool is_atomic)		
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_rw_work wwork;
+	struct dhmp_work *work;
+
+	rdma_trans=dhmp_get_trans_from_addr(dhmp_addr);
+	if(!rdma_trans||rdma_trans->trans_state!=DHMP_TRANSPORT_STATE_CONNECTED)
+	{
+		ERROR_LOG("rdma connection error.");
+		return -1;
+	}
+
+	work=malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("alloc memory error.");
+		return -1;
+	}
+	wwork.done_flag=false;
+	wwork.length=count;
+	wwork.local_addr=local_buf;
+	wwork.dhmp_addr= dhmp_addr; 
+	wwork.rdma_trans=rdma_trans;
+	wwork.offset = offset;		// WGT
+	wwork.is_atomic = is_atomic;// wgt
+			
+	work->work_type=DHMP_WORK_WRITE;
+	work->work_data=&wwork;
+	
+	pthread_mutex_lock(&client->mutex_work_list);
+	list_add_tail(&work->work_entry, &client->work_list);
+	pthread_mutex_unlock(&client->mutex_work_list);
+	
+	while(!wwork.done_flag);
+
+	free(work);
+	
+	return 0;
+}
+
+
 

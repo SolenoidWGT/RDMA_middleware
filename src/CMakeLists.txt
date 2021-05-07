@@ -1,5 +1,6 @@
 # 查找当前目录下的所有源文件
 # 并将名称保存到 DHMP_LIB_SRCS 变量
+add_subdirectory(log_copy)
 aux_source_directory(. MID_RDMA_LIB_SRCS)
 
 # set (CMAKE_CXX_FLAGS "-Wall -lxml2 -lrdmacm -libverbs -lpthread -lnuma -lrt -lm -lmemkind")
@@ -8,6 +9,7 @@ aux_source_directory(. MID_RDMA_LIB_SRCS)
 # MESSAGE(STATUS "THIS " ${DHMP_SOURCE_DIR})
 
 # 指定生成 MathFunctions 链接库
-add_library (middlib ${MID_RDMA_LIB_SRCS})
 
+
+add_library (middlib ${MID_RDMA_LIB_SRCS})
 SET(LIBRARY_OUTPUT_PATH ${MID_RDMA_SOURCE_DIR}/lib)

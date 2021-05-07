@@ -583,10 +583,21 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 static int on_cm_rejected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_REJECT;
+	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server [%d]-th", rdma_trans->node_id);
+	free_trans(rdma_trans);
 	return 0;
 }
 
 // WGT
+/*
+	https://linux-rdma.vger.kernel.narkive.com/zqiCL27t/rdma-cm-event-rejected-and-ressources-release
+
+	If the connection is not successful, call the corresponding destroy
+	calls in the the reverse order.
+
+	If the connection is successful, register memory and post the receive
+	calls.
+*/
 int free_trans(struct dhmp_transport* rdma_trans)
 {
 	/*
@@ -615,6 +626,7 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	free(rdma_trans->send_mr.addr);
 	// undo malloc
 	free(rdma_trans);
+	INFO_LOG("Free rdma_trans with server [%d]-th", node_id);
 	return 0;
 }
 
@@ -660,7 +672,6 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 			retval=-1;
 			break;
 	};
-
 	return retval;
 }
 

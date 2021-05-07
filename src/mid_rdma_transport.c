@@ -231,7 +231,8 @@ error:
 	return -1;
 }
 
-int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length)
+int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
+						off_t offset)
 {
 	struct dhmp_task* read_task;
 	struct ibv_send_wr send_wr,*bad_wr=NULL;
@@ -254,7 +255,8 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 	send_wr.sg_list=&sge;
 	send_wr.num_sge=1;
 	send_wr.send_flags=IBV_SEND_SIGNALED;
-	send_wr.wr.rdma.remote_addr=(uintptr_t)mr->addr;
+	//send_wr.wr.rdma.remote_addr=(uintptr_t)mr->addr;
+	send_wr.wr.rdma.remote_addr= ( uintptr_t )(( uintptr_t )mr->addr + offset);  // WGT
 	send_wr.wr.rdma.rkey=mr->rkey;
 
 	sge.addr=(uintptr_t)read_task->sge.addr;
@@ -283,40 +285,51 @@ error:
 	return -1;
 }
 
-int dhmp_rdma_write(struct dhmp_transport* rdma_trans, struct dhmp_addr_info* addr_info,
-	struct ibv_mr* mr, void* local_addr, int length)
+// WGT
+int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, 
+								struct ibv_mr* mr, void* local_addr, int length,
+								off_t offset)
 {
-	struct dhmp_task* write_task;
-	struct ibv_send_wr send_wr, * bad_wr = NULL;
-	struct ibv_sge sge;
-	struct dhmp_send_mr* smr = NULL;
-	int err = 0;
+	struct timespec start_time, end_time;
 
-	// 由dhmp_get_mr_from_send_list函数解决内存区域复用的问题
-	smr = dhmp_get_mr_from_send_list(rdma_trans, local_addr, length);
-	write_task = dhmp_write_task_create(rdma_trans, smr, length);
-	if (!write_task)
+	struct dhmp_task* write_task;
+	struct ibv_send_wr send_wr,*bad_wr=NULL;
+	struct ibv_sge sge;
+	struct dhmp_send_mr* smr=NULL;
+	int err=0;
+	
+	//clock_gettime(CLOCK_MONOTONIC, &start_time);
+	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, length);
+	// clock_gettime(CLOCK_MONOTONIC, &end_time);
+	// get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) -
+    //                     ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
+						
+	write_task=dhmp_write_task_create(rdma_trans, smr, length);
+	if(!write_task)
 	{
 		ERROR_LOG("allocate memory error.");
 		return -1;
 	}
-	write_task->addr_info = addr_info;
-
+	write_task->addr_info=addr_info;
+	
 	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 
-	send_wr.wr_id = (uintptr_t)write_task;
-	send_wr.opcode = IBV_WR_RDMA_WRITE;
-	send_wr.sg_list = &sge;
-	send_wr.num_sge = 1;
-	send_wr.send_flags = IBV_SEND_SIGNALED;
-	send_wr.wr.rdma.remote_addr = (uintptr_t)mr->addr;
-	send_wr.wr.rdma.rkey = mr->rkey;
+	send_wr.wr_id= ( uintptr_t ) write_task;
+	send_wr.opcode=IBV_WR_RDMA_WRITE;
+	send_wr.sg_list=&sge;
+	send_wr.num_sge=1;
+	send_wr.send_flags=IBV_SEND_SIGNALED;
+	// send_wr.wr.rdma.remote_addr= ( uintptr_t ) mr->addr; 
+	send_wr.wr.rdma.remote_addr= ( uintptr_t )(( uintptr_t )mr->addr + offset);  // WGT
+	send_wr.wr.rdma.rkey=mr->rkey;
 
-	sge.addr = (uintptr_t)write_task->sge.addr;
-	sge.length = write_task->sge.length;
-	sge.lkey = write_task->sge.lkey;
-	err = ibv_post_send(rdma_trans->qp, &send_wr, &bad_wr);
-	if (err)
+	sge.addr= ( uintptr_t ) write_task->sge.addr;
+	sge.length=write_task->sge.length;
+	sge.lkey=write_task->sge.lkey;
+
+
+	err=ibv_post_send ( rdma_trans->qp, &send_wr, &bad_wr );
+	if ( err )
 	{
 		ERROR_LOG("ibv_post_send error");
 		exit(-1);
@@ -324,10 +337,11 @@ int dhmp_rdma_write(struct dhmp_transport* rdma_trans, struct dhmp_addr_info* ad
 	}
 
 	while (!write_task->done_flag);
+	DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
+
 	ibv_dereg_mr(smr->mr);
 	free(smr);
 	return 0;
-
 error:
 	return -1;
 }

@@ -6,13 +6,15 @@
 
 #include "dhmp.h"
 #include "dhmp_transport.h"
-#include "../include/dhmp_work.h"
-#include "../include/dhmp_task.h"
-#include "../include/dhmp_client.h"
-#include "../include/dhmp_log.h"
+#include "dhmp_work.h"
+#include "dhmp_task.h"
+#include "dhmp_client.h"
+#include "dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
 #include "mid_rdma_utils.h"
+
+#include "log_copy.h"
 
 static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
 												struct dhmp_msg* msg)
@@ -62,6 +64,7 @@ req_error:
 
 	return ;
 }
+
 static void dhmp_malloc_response_handler(struct dhmp_transport* rdma_trans,
 													struct dhmp_msg* msg)
 
@@ -79,6 +82,110 @@ static void dhmp_malloc_response_handler(struct dhmp_transport* rdma_trans,
 			addr_info->nvm_mr.addr, addr_info->nvm_mr.lkey);
 
 }
+
+
+static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
+												struct dhmp_msg* msg)
+
+{
+	int re;
+	struct dhmp_buff_response response;
+	struct dhmp_msg res_msg;
+	bool res=true;
+	struct dhmp_device * dev;
+	struct ibv_mr * mr = NULL;
+	size_t re_length = 0;
+	char * addr;
+
+	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_mc_request));
+	INFO_LOG ( "Upstream node id is  %d",  response.req_info.node_id);
+	response.node_id = server->server_id;
+	
+	dev=dhmp_get_dev_from_server();
+	if(local_recv_buff == NULL && local_recv_buff_mate == NULL)
+	{
+		local_recv_buff_mate = (LocalMateRingbuff*) malloc(sizeof(LocalMateRingbuff));
+		re = dhmp_memory_register(dev->pd, local_recv_buff_mate->buff_mate_mr, sizeof(LocalRingbuff));
+
+		if(re !=0)
+		{
+			ERROR_LOG("BUFF: malloc and register Local_Recv_Buff_MR Fail!");
+			free(local_recv_buff_mate);
+			local_recv_buff_mate = NULL;
+			local_recv_buff = NULL;
+			goto req_error;
+		}
+
+		local_recv_buff = (LocalRingbuff*) local_recv_buff_mate->buff_mate_mr->addr;
+		local_recv_buff->wr_pointer = 0;
+		local_recv_buff->rd_pointer = 0;
+		local_recv_buff->size = 0;
+		
+
+		re =  dhmp_memory_register(dev->pd, local_recv_buff->buff_mr, BUFFER_SIZE);
+		if(re !=0)
+		{
+			ERROR_LOG("BUFF: malloc and register buff Fail!");
+			ibv_dereg_mr(local_recv_buff_mate->buff_mate_mr->mr);
+			free(local_recv_buff_mate->buff_mate_mr->addr);
+			free(local_recv_buff_mate);
+			local_recv_buff_mate = NULL;
+			local_recv_buff= NULL;
+			goto req_error;
+		}
+		local_recv_buff->buff_addr = local_recv_buff->buff_mr->addr;
+	}
+
+	memcpy(&response.mr_buff, local_recv_buff_mate->buff_mate_mr, sizeof(struct ibv_mr));
+	
+	memcpy(&response.mr_data, local_recv_buff->buff_mr, sizeof(struct ibv_mr));
+
+	DEBUG_LOG("BUFF: malloc Buffer addr sucess");
+
+	res_msg.msg_type = DHMP_BUFF_MALLOC_RESPONSE;
+	res_msg.data_size = sizeof(struct dhmp_buff_response);
+	res_msg.data= &response;
+	dhmp_post_send(rdma_trans, &res_msg);
+
+	return ;
+req_error:
+	/*transmit a message of DHMP_MSG_MALLOC_ERROR*/
+	res_msg.msg_type=DHMP_BUFF_MALLOC_ERROR;
+	res_msg.data_size=sizeof(struct dhmp_buff_response);
+	res_msg.data=&response;
+	dhmp_post_send ( rdma_trans, &res_msg );
+
+	return ;
+
+}
+
+static void dhmp_malloc_buff_response_handler(struct dhmp_transport* rdma_trans,
+													struct dhmp_msg* msg)
+
+{
+	struct dhmp_buff_response response_msg;
+	struct dhmp_addr_info * buff_addr_info;
+	struct dhmp_addr_info * buff_mate_addr_info;
+	memcpy(&response_msg, msg->data, sizeof(struct dhmp_buff_response));
+	int peer_id = response_msg.node_id;
+
+	buff_addr_info = response_msg.req_info.buff_addr_info;
+	buff_mate_addr_info = response_msg.req_info.buff_mate_addr_info;
+
+	buff_addr_info->read_cnt = 0;
+	buff_addr_info->write_cnt = 0;
+	buff_mate_addr_info->read_cnt = 0;
+	buff_mate_addr_info->write_cnt = 0;
+
+	memcpy(&buff_addr_info->nvm_mr, 	 &response_msg.mr_data, sizeof(struct ibv_mr));
+	memcpy(&buff_mate_addr_info->nvm_mr, &response_msg.mr_buff, sizeof(struct ibv_mr));
+
+	DEBUG_LOG("response buff mr addr %p", 			buff_addr_info->nvm_mr.addr);
+	DEBUG_LOG("response buff matedata mr addr %p",  buff_mate_addr_info->nvm_mr.addr);
+}
+
+
+
 
 static void dhmp_malloc_error_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
 {
