@@ -270,7 +270,7 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 		goto error;
 	}
 
-	DEBUG_LOG("before local addr is %s", local_addr);
+	//DEBUG_LOG("before local addr is %s", local_addr);
 	
 	while(!read_task->done_flag);
 	
@@ -278,7 +278,7 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 	ibv_dereg_mr(smr->mr);
 	free(smr);
 		
-	DEBUG_LOG("local addr content is %s", local_addr);
+	//DEBUG_LOG("local addr content is %s", local_addr);
 
 	return 0;
 error:

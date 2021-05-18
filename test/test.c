@@ -3,8 +3,8 @@
  * @version: 
  * @Author: sueRimn
  * @Date: 2021-04-25 17:46:17
- * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-07 14:44:12
+ * @LastEditors: Please set LastEditors
+ * @LastEditTime: 2021-05-18 19:29:30
  */
 #include <stdio.h>
 #include <sys/time.h>
@@ -26,6 +26,7 @@
 
 #define COUNT 100000
 #define SIZE 1024*8
+#define SINGLE_SIZE 1024
 #define WAIT_TIME 5
 //unsigned long get_mr_time = 0;
 
@@ -33,10 +34,10 @@
 int main(int argc,char *argv[])
 {
 	struct dhmp_server * mid_server;
-
 	/*init list about rdma device*/
 	mid_server = dhmp_server_init();
 	/* wait peer server init server*/
+	INFO_LOG("Test begin!");
 	int i;
 	for(i =0; i<WAIT_TIME; i++){
 		INFO_LOG("Please wait peer server init, left time is %d s", WAIT_TIME-i);
@@ -59,6 +60,19 @@ int main(int argc,char *argv[])
 	// dhmp_send(remote_addr, base, SIZE, true);
 	// dhmp_send(remote_addr, base, SIZE, false);
 	buff_init();
+	if(!remote_buff){
+		INFO_LOG("buff_init fail!");
+		exit(0);
+	}
+	char * local_text = (char *) malloc(SINGLE_SIZE);
+	memset(local_text, 1, SINGLE_SIZE);
+	while(true)
+		rb_write(remote_buff, local_text, SINGLE_SIZE);
+	
+
+	
+
+	
 
 
 

@@ -98,7 +98,7 @@ static void dhmp_addr_info_insert_ht(void *dhmp_addr,
 
 	addr_info->dram_mr.addr=NULL;
 	index=dhmp_hash_in_client(dhmp_addr);
-	DEBUG_LOG("insert ht %d %p",index,addr_info->nvm_mr.addr);
+	// DEBUG_LOG("insert ht %d %p",index,addr_info->nvm_mr.addr);
 	hlist_add_head(&addr_info->addr_entry, &client->addr_info_ht[index]);
 }
 
@@ -188,7 +188,7 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 	buff_addr = buff_malloc_work->buff_addr_info->nvm_mr.addr;
 	buff_mate_addr = buff_malloc_work->buff_mate_addr_info->nvm_mr.addr;
 	
-	DEBUG_LOG ("get buff_addr addr %p, buff_mate_addr %p", buff_addr, buff_mate_addr);
+	// DEBUG_LOG ("get buff_addr addr %p, buff_mate_addr %p", buff_addr, buff_mate_addr);
 	
 	if(buff_addr==NULL || buff_mate_addr==NULL)
 	{
@@ -329,7 +329,7 @@ void dhmp_read_work_handler(struct dhmp_work *work)
 	while(addr_info->write_flag);
 	
 	++addr_info->read_cnt;
-
+	INFO_LOG("read remote addr is %p", addr_info->nvm_mr.addr);
 	dhmp_rdma_read(rwork->rdma_trans, &addr_info->nvm_mr,
 				rwork->local_addr, rwork->length, rwork->offset);	// WGT
 

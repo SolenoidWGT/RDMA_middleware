@@ -3,8 +3,8 @@
  * @version: 
  * @Author: sueRimn
  * @Date: 2021-05-06 09:34:47
- * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-07 16:42:38
+ * @LastEditors: Please set LastEditors
+ * @LastEditTime: 2021-05-18 19:40:46
  */
 
 
@@ -106,7 +106,7 @@ int rb_write (RemoteRingbuff *rb, void *upper_api_buf, int len)
     // 更新远端写偏移量
     remote_buff->wr_pointer = pos + len;
     dhmp_write(remote_buff->buff_mate, &remote_buff->rd_pointer, sizeof(int), 0, true);
-
+    INFO_LOG("Success write, now pointer is %d", remote_buff->rd_pointer);
     return free_space;
     
     // for(; start_b < len; start_b++)
