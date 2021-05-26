@@ -337,7 +337,7 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 	}
 
 	while (!write_task->done_flag);
-	DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
+	// DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
 
 	ibv_dereg_mr(smr->mr);
 	free(smr);

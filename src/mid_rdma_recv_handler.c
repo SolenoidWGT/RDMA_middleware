@@ -119,7 +119,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 		local_recv_buff = (LocalRingbuff*) local_recv_buff_mate->buff_mate_mr.addr;
 		local_recv_buff->wr_pointer = 0;
 		local_recv_buff->rd_pointer = 0;
-		local_recv_buff->size = 0;
+		local_recv_buff->size = TOTAL_SIZE;
 		
 
 		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, BUFFER_SIZE);
@@ -134,11 +134,12 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 			goto req_error;
 		}
 		local_recv_buff->buff_addr = local_recv_buff->buff_mr.addr;
+		INFO_LOG("Local mate addr is %p, buff addr is %p", local_recv_buff, local_recv_buff->buff_addr);
 	}
 
-	memcpy(&response.mr_buff, &local_recv_buff_mate->buff_mate_mr, sizeof(struct ibv_mr));
+	memcpy(&response.mr_buff, local_recv_buff_mate->buff_mate_mr.mr, sizeof(struct ibv_mr));
 	
-	memcpy(&response.mr_data, &local_recv_buff->buff_mr, sizeof(struct ibv_mr));
+	memcpy(&response.mr_data, local_recv_buff->buff_mr.mr, sizeof(struct ibv_mr));
 
 	DEBUG_LOG("BUFF: malloc Buffer addr sucess");
 

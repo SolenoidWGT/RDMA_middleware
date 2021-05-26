@@ -4,7 +4,7 @@
  * @Author: sueRimn
  * @Date: 2021-04-25 17:46:17
  * @LastEditors: Please set LastEditors
- * @LastEditTime: 2021-05-18 19:29:30
+ * @LastEditTime: 2021-05-18 20:30:56
  */
 #include <stdio.h>
 #include <sys/time.h>
@@ -26,7 +26,6 @@
 
 #define COUNT 100000
 #define SIZE 1024*8
-#define SINGLE_SIZE 1024
 #define WAIT_TIME 5
 //unsigned long get_mr_time = 0;
 
@@ -64,18 +63,6 @@ int main(int argc,char *argv[])
 		INFO_LOG("buff_init fail!");
 		exit(0);
 	}
-	char * local_text = (char *) malloc(SINGLE_SIZE);
-	memset(local_text, 1, SINGLE_SIZE);
-	while(true)
-		rb_write(remote_buff, local_text, SINGLE_SIZE);
-	
-
-	
-
-	
-
-
-
-	dhmp_server_destroy();
+	pthread_join(server->ctx.epoll_thread, NULL);
 	return 0;
 }
