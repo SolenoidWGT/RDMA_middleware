@@ -17,10 +17,9 @@
 
 
 enum log_read_state {
-	MID_READ_WAIT,
-    MID_READ_KEY,
-    MID_READ_VALUE,
-    MID_READ_FAIL
+	READ_NO_LOG,
+    READ_LOG_KEY,
+    READ_LOG_VALUE
 };
 
 
@@ -105,7 +104,7 @@ typedef struct ring_buff_local
 #define PTR_LOG_DATA_ADDR(l) ( (void*)(l) + sizeof(logEntry))
 #define PTR_LOG_VALUE_ADDR(l) ( (void*)(l) + sizeof(logEntry) + PTR_KEY_LEN(l))
 #define PTR_LOG_VALUE_TAG_LEN(l) ( sizeof(logEntry) + PTR_KEY_LEN(l) + PTR_VALUE_LEN(l) - 1)
-
+#define PTR_LOG_LEN(l) (sizeof(logEntry) + PTR_KEY_LEN(l) + PTR_VALUE_LEN(l))
 
 
 typedef struct logMateData
@@ -136,15 +135,24 @@ bool rb_write (void *upper_api_buf, int len);
 bool rb_read (void *buf, int len, bool isCopy);
 void buff_init();
 
-static inline int rb_data_size (Ringbuff *rb)    //计算数据空间大小
+//计算数据空间大小
+static inline int rb_data_size (Ringbuff *rb)    
 {
     return ( (rb->wr_pointer - rb->rd_pointer) & (rb->size -1));   
 }
 
-static inline int rb_free_size (Ringbuff *rb)   //计算空闲空间大小
+//计算空闲空间大小
+static inline int rb_free_size (Ringbuff *rb)   
 {
     return ( rb->size - 1 - rb_data_size(rb));
 }
+
+//计算从读指针pos开始的空闲空间大小
+static inline int rb_count_size (Ringbuff *rb, int pos)   
+{
+    return  ((rb->wr_pointer - pos) & (rb->size - 1));
+}
+
 
 static inline void update_wr_local(int new_ptr)
 {

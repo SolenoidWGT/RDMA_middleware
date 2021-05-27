@@ -27,6 +27,7 @@
 #include "log_copy.h"
 #include "mid_hashmap.h"
 #include "unlock_queue.h"
+#include "mid_api.h"
 
 #define SIZE 1024*8
 #define WAIT_TIME 5
@@ -48,6 +49,11 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
 bool rb_read (void *buf, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
 
+void update_wr_remote()
+{
+    dhmp_write(remote_buff->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
+}
+
 bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
 {
     // 读远端读偏移量
@@ -68,15 +74,9 @@ bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
 }
 
 
-void update_wr_remote()
-{
-    dhmp_write(remote_buff->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
-}
-
 char * NAME_LISTS[REPEAT];
 const char * name = "wang guo teng";
 unQueue* valueQueue = NULL;
-
 void* writer_thread(void * args)
 {
     int count = 0;
@@ -271,6 +271,221 @@ bool read_one_log(void* upperAddr)
     }
 }
 
+/*  
+memcpy_buffer
+    功能：
+        从buffer中拷贝一段内存， buffer中的内存可以不是连续的
+    输入：
+        dest: 拷贝目标地址
+        src: 被拷贝buffer起始地址
+        len: 拷贝长度
+    返回值：
+        len不大于可读空间返回真，小于返回假
+*/
+void memcpy_buffer(void* dest, void* src, int len)
+{
+    int pos = src - local_recv_buff->buff_addr;
+    int buff_size = local_recv_buff->size;
+    if(rb_count_size((Ringbuff*) local_recv_buff, pos) < len)
+    {
+        ERROR_LOG("memcpy_buffer out of index, dest is %p, \
+                            src is %p, offset is %d", dest, src, len);
+        exit(0);
+    }
+    if(pos + len > buff_size)
+    {
+        int left_size = buff_size - pos;
+        memcpy(dest, local_recv_buff->buff_addr, left_size);
+        dest += left_size;
+        len -= left_size;
+        pos = 0;
+    }
+    memcpy(dest, local_recv_buff->buff_addr + pos, len);
+}
+
+/*  
+    get_char： 获得指定地址的char值
+*/
+char get_char(void* addr)
+{
+    return *(char*)(addr);
+}
+
+/*  
+    next_char 获得addr在buffer中的下一个字节的char值
+*/
+char next_char(void* addr)
+{
+    int pos = addr - local_recv_buff->buff_addr;
+    int next_pos = (pos + 1) & (local_recv_buff->size - 1);
+    return *(char*)(local_recv_buff->buff_addr + next_pos);
+}
+
+/*  
+    next_byte 获得addr在buffer中的下一个字节的地址
+*/
+void* next_byte(void* addr)
+{
+    int pos = addr - local_recv_buff->buff_addr;
+    int next_pos = (pos + 1) & (local_recv_buff->size - 1);
+    return (local_recv_buff->buff_addr + next_pos);
+}
+
+/*  
+index_char
+    功能：
+        给一个在buffer中的地址提供类似于一维数组下标的随机访问，类似于：
+            char * addr;
+            char a = addr[offset];
+        调用者应该保证offset不超过buffer可读范围
+    输入：
+        addr: 一个位于buffer中的地址
+        offset: 下标偏移量
+    返回值：
+        addr[offset]
+*/
+char index_char(void* addr, int offset)
+{
+    int pos = addr - local_recv_buff->buff_addr;
+    int buff_size = local_recv_buff->size;
+
+    if(rb_count_size((Ringbuff*) local_recv_buff, pos) < offset)
+    {
+        ERROR_LOG("index_char out of index, addr is %p, offset is %d", addr, offset);
+        exit(0);
+    }
+    pos = (pos + offset) & (buff_size - 1);
+    return *(char*)(local_recv_buff->buff_addr + pos);
+}
+
+
+/*  
+next_log
+    功能：
+        给一个log的起始地址:
+            （1）如果buffer可读大小小于 matedata 大小，函数返回0，引用参数的值无意义。
+            （2）如果buffer可读大小大于等于 matedata 大小：
+                （2.1）如果log的value值已经发送完毕，函数返回1，
+                        并通过引用参数返回下一个log的log起始地址，value起始地址，key长度和value长度。
+                （2.2）如果log的value值没有发送完成，函数返回2，
+                        引用参数返回值同（2.1），但是注意不能使用取value的值
+        调用此函数不会移动读指针。
+    输入：
+        now_log_addr: 
+    返回值：
+        next_log_addr
+        value_addr
+        key_len
+        value_len
+        bool
+*/
+int next_log(void* now_log_addr, void** next_log_addr, void** value_addr, \
+                int *key_len, int *value_len)
+{
+    int len = PTR_LOG_LEN((logEntry*)now_log_addr);
+    int pos = now_log_addr - local_recv_buff->buff_addr;
+    int buff_size = local_recv_buff->size;
+    void * addr;
+
+    if(rb_count_size((Ringbuff*) local_recv_buff, pos) < len)
+    {
+        ERROR_LOG("Enter log size has some mistake!");
+        exit(0);
+    }
+
+    pos = (pos + len) & (buff_size - 1);
+
+    if(rb_count_size((Ringbuff*) local_recv_buff, pos) < sizeof(logMateData))
+        return READ_NO_LOG;
+
+    if(next_log_addr)
+        *next_log_addr = local_recv_buff->buff_addr + pos;
+    if(key_len)
+        *key_len = PTR_KEY_LEN((logEntry*) (*next_log_addr));
+    if(value_len)
+        *value_len = PTR_KEY_LEN((logEntry*) (*next_log_addr));
+    if(value_addr)
+        *value_addr = PTR_LOG_VALUE_ADDR((logEntry*) (*next_log_addr));
+
+    addr =  *next_log_addr +  PTR_LOG_VALUE_TAG_LEN((logEntry*) (*next_log_addr));
+    if(test_done(addr))
+        return READ_LOG_VALUE;
+    else
+        return READ_LOG_KEY;
+}
+
+/*  
+free_log
+    功能：
+        给一个log的起始地址，移动读指针，将这个log占用的空间从buffer释放掉
+        注意输入的log起始地址必须位于buffer的读指针起始位置
+    输入：
+        now_log_addr: 被释放的log的起始地址
+*/
+void free_log(void* now_log_addr)
+{
+    int len;
+    int pos = now_log_addr - local_recv_buff->buff_addr;
+    if(pos != local_recv_buff->rd_pointer)
+    {
+        ERROR_LOG("The log [addr is %p]to be freed is \
+                            not in the begin of buffer!", now_log_addr);
+        exit(0);
+    }
+    if(dirty_map->get(dirty_map, PTR_LOG_DATA_ADDR(now_log_addr)))
+        dirty_map->remove(dirty_map, PTR_LOG_DATA_ADDR(now_log_addr));
+    else
+    {
+        ERROR_LOG("A to be deleted log is not in the dirty map! something wrong!");
+        exit(0);
+    }
+    len = PTR_LOG_LEN((logEntry*)now_log_addr);
+    local_recv_buff->rd_pointer = (pos + len) & (local_recv_buff->size - 1);
+}
+
+
+/*  
+updade_dirty_map
+    功能：
+    输入：
+*/
+void updade_dirty_map(int last_wr_ptr)
+{
+    void* now_log_addr = LOCAL_RD_ADDR;
+    void* next_log_addr;
+    int key_len;
+    bool loop = true;
+
+    if(last_wr_ptr == local_recv_buff->wr_pointer)
+        return;
+    
+    while(loop)
+    {
+        enum log_read_state state; 
+        switch (next_log(now_log_addr, &next_log_addr, NULL, &key_len, NULL))
+        {
+            case READ_NO_LOG:
+                loop = false;
+                break;
+            case READ_LOG_KEY:
+            case READ_LOG_VALUE:
+                if(!dirty_map->exists(dirty_map, next_log_addr))
+                    /*  必须保证key是一个c语言风格的字符串 */
+                    dirty_map->put(dirty_map, PTR_LOG_DATA_ADDR(next_log_addr), NULL);
+                    now_log_addr = next_log_addr;
+                break;
+        }
+    }
+}
+
+/* 
+    给定一个key的指针，判断其是否为脏
+    key是一个c语言风格的字符串
+*/
+int judge_key_dirty(void * key)
+{
+    return dirty_map->exists(dirty_map, key);
+}
 
 // rb_read在关键路径上
 bool rb_read (void *buf, int len, bool isCopy)
