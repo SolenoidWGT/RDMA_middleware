@@ -122,7 +122,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 		local_recv_buff->size = TOTAL_SIZE;
 		
 
-		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, BUFFER_SIZE);
+		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, TOTAL_SIZE);
 		if(re !=0)
 		{
 			ERROR_LOG("BUFF: malloc and register buff Fail!");
@@ -134,6 +134,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 			goto req_error;
 		}
 		local_recv_buff->buff_addr = local_recv_buff->buff_mr.addr;
+		memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);	/* 将buffer初始化为 0， 因为我们要使用标志位进行比较*/
 		INFO_LOG("Local mate addr is %p, buff addr is %p", local_recv_buff, local_recv_buff->buff_addr);
 	}
 

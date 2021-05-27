@@ -329,7 +329,7 @@ void dhmp_read_work_handler(struct dhmp_work *work)
 	while(addr_info->write_flag);
 	
 	++addr_info->read_cnt;
-	INFO_LOG("read remote addr is %p", addr_info->nvm_mr.addr);
+	// INFO_LOG("read remote addr is %p", addr_info->nvm_mr.addr);
 	dhmp_rdma_read(rwork->rdma_trans, &addr_info->nvm_mr,
 				rwork->local_addr, rwork->length, rwork->offset);	// WGT
 

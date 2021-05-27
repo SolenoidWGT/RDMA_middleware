@@ -37,16 +37,16 @@ enum log_read_state {
 
 typedef struct Ring_buff
 {
-    unsigned int wr_pointer;              // 写指针cache
-    unsigned int rd_pointer;               // 读指针cache
+    int wr_pointer;              // 写指针cache
+    int rd_pointer;               // 读指针cache
     int size;                      // 字节大小
 }Ringbuff;
 
 typedef struct Ring_buff_remote
 {
-    unsigned int wr_pointer;              // 写指针cache
-    unsigned int rd_pointer;               // 读指针cache
-    unsigned int size;                      // 字节大小
+    int wr_pointer;              // 写指针cache
+    int rd_pointer;               // 读指针cache
+    int size;                      // 字节大小
     
     int node_id;
     void* buff_mate;              // 远端buff的元数据地址
@@ -61,9 +61,9 @@ typedef struct Ring_buff_local_mate
 
 typedef struct ring_buff_local
 {
-    unsigned int wr_pointer;               // 写偏移量, 指向可写位置或者1字节的终点
-    unsigned int rd_pointer;               // 读偏移量，指向可读位置或者1字节的终点
-    unsigned int size;                     
+    int wr_pointer;               // 写偏移量, 指向可写位置或者1字节的终点
+    int rd_pointer;               // 读偏移量，指向可读位置或者1字节的终点
+    int size;                     
     
     void * buff_addr;
     struct dhmp_mr buff_mr;
@@ -88,6 +88,13 @@ typedef struct ring_buff_local
 //     void* buff;
 // }RemoteRingbuff;
 
+
+#define LOCAL_WR_PTR (remote_buff->wr_pointer)
+#define LOCAL_WR_PTR_ADDR (&(remote_buff->wr_pointer))
+
+#define LOCAL_RD_PTR (local_recv_buff->rd_pointer)
+#define LOCAL_RD_ADDR (local_recv_buff->buff_addr + LOCAL_RD_PTR)
+
 #define KEY_LEN(l) ((l).mateData.key_length)
 #define VALUE_LEN(l) ((l).mateData.value_length)
 
@@ -97,13 +104,14 @@ typedef struct ring_buff_local
 
 #define PTR_LOG_DATA_ADDR(l) ( (void*)(l) + sizeof(logEntry))
 #define PTR_LOG_VALUE_ADDR(l) ( (void*)(l) + sizeof(logEntry) + PTR_KEY_LEN(l))
-#define PTR_LOG_VALUE_TAG_ADDR(l) ( (void*)(l) + sizeof(logEntry) + PTR_KEY_LEN(l) + PTR_VALUE_LEN(l) - 1)
+#define PTR_LOG_VALUE_TAG_LEN(l) ( sizeof(logEntry) + PTR_KEY_LEN(l) + PTR_VALUE_LEN(l) - 1)
+
 
 
 typedef struct logMateData
 {
-    unsigned int key_length;            //  key部分长度
-    unsigned int value_length;          //  data部分长度
+    int key_length;            //  key部分长度
+    int value_length;          //  data部分长度
     // char data[];                        //  key + value
 }logMateData;
 
@@ -111,7 +119,7 @@ typedef struct logMateData
 typedef struct logEntry
 {
     logMateData mateData;
-    unsigned int     dataPos;       // 写者需要，读者不需要
+    int     dataPos;       // 写者需要，读者不需要
     void*            dataAddr;      // 写者需要，读者不需要
     /* data */
 }logEntry;
@@ -140,27 +148,12 @@ static inline int rb_free_size (Ringbuff *rb)   //计算空闲空间大小
 
 static inline void update_wr_local(int new_ptr)
 {
-    // get_wr_local() = pos + len;
     remote_buff->wr_pointer= new_ptr;
-}
-
-static inline int get_wr_local()
-{
-    // get_wr_local() = pos + len;
-    return remote_buff->wr_pointer;
-}
-
-static inline void* get_wr_addr_local()
-{
-    // get_wr_local() = pos + len;
-    return &(remote_buff->wr_pointer);
 }
 
 static inline bool test_done(void * addr)
 {
     char    test = 1;
-    return ( *(char*)addr ^ test);
+    return !( (*(char*)addr ) ^ test);      /* 自己跟自己异或才会是0 */
 }
-
-
 #endif

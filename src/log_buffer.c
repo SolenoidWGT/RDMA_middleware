@@ -43,8 +43,8 @@ HashMap * dirty_map;
 void * DEBUG_UPPER_BUFFER;
 
 
-void rb_write_data (void *upper_api_buf, unsigned int dataPos, unsigned int dataLen);
-int rb_write_mate (void *upper_api_buf, unsigned int mateLen, unsigned int dataLen);
+void rb_write_data (void *upper_api_buf, int dataPos, int dataLen);
+int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
 bool rb_read (void *buf, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
 
@@ -70,8 +70,7 @@ bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
 
 void update_wr_remote()
 {
-    dhmp_write(remote_buff->buff_mate, get_wr_addr_local(), sizeof(int), 0, true);
-    INFO_LOG("Success write, now wr_pointer pointer is %d", get_wr_local());   
+    dhmp_write(remote_buff->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
 }
 
 char * NAME_LISTS[REPEAT];
@@ -90,12 +89,12 @@ void* writer_thread(void * args)
         memset(ptr, 0 , SINGLE_SIZE);
         strcpy(ptr, name);
         ptr[0] = (char)('a' + count);
-        ptr[strlen(ptr) + 1 + TAG] = 1;     // strlen 长度不包含'\0'
+        ptr[strlen(ptr) + TAG] = 1;     // strlen 长度不包含'\0'
     }
 
     count = 0;
     valueQueue = initQueue(sizeof(void*), 1024);
-
+    DEBUG_LOG("------------------------Write thread create---------------------------------------\n");
 	while(count < REPEAT)
 	{
         char * key = NAME_LISTS[count];
@@ -104,11 +103,14 @@ void* writer_thread(void * args)
         size_t value_len = strlen(NAME_LISTS[count]) + 1 + TAG;
         size_t send_len = key_len + sizeof(logEntry);
 
-        logEntry *log = (logEntry*) malloc(sizeof(logEntry) + key_len);
+        logEntry *log = (logEntry*) malloc(send_len);
         log->mateData.key_length = key_len;
-        log->mateData.value_length = key_len;
+        log->mateData.value_length = value_len;
         log->dataAddr = value;
         memcpy(PTR_LOG_DATA_ADDR(log), key, key_len);
+
+        INFO_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
+                                PTR_KEY_LEN(log), PTR_VALUE_LEN(log), send_len + value_len);
 
         log->dataPos = rb_write_mate(log, send_len, value_len);
         
@@ -130,35 +132,6 @@ void* writer_thread(void * args)
 	pthread_exit(0);
 }
 
-
-void* reader_thread(void * args)
-{
-    int count = 0;
-    char * upperBuffer;
-
-	pthread_detach(pthread_self());
-    while(local_recv_buff == NULL);
-    while(local_recv_buff->buff_addr == NULL);
-
-    /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
-    memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);
-    upperBuffer = (char*) malloc(SINGLE_SIZE);
-    for(;;)
-    {
-        if(read_one_log(upperBuffer))
-        {
-            count++;
-            INFO_LOG("Reader has read log [%d] \"%s\"", count, upperBuffer);
-            memset(upperBuffer, 0 , SINGLE_SIZE);
-        }
-        if(count == REPEAT)
-            break;
-    }
-    INFO_LOG("reader_thread read all logs and exit!");
-    free(upperBuffer);
-    pthread_exit(0);
-}
-
 void * NIC_thread(void * args)
 {
     logEntry * log= NULL;
@@ -174,7 +147,7 @@ void * NIC_thread(void * args)
             rb_write_data(log->dataAddr, log->dataPos, PTR_VALUE_LEN(log));
             free((void*)log);  /* 不需要free掉log->data， 因为log->data实际上就是log的末尾 */
             count++;
-            INFO_LOG("Writer has write log [%d] data context :\"%s\"", count, log->dataAddr);
+            INFO_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->dataAddr);
         }
         if(count == REPEAT)
             break;
@@ -184,19 +157,110 @@ void * NIC_thread(void * args)
 }
 
 
+// 写元数据，并提前移动远端写指针，预留出data的位置
+int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen)
+{
+    int totalLen = mateLen + dataLen;
+    int dataPos = -1;
+    if(!check_remote_size(remote_buff, totalLen))
+        return -1;
+
+    // 先写 mate 数据
+    int pos = LOCAL_WR_PTR;
+    if(pos + mateLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        upper_api_buf += left_size;
+        mateLen -= left_size;
+        pos = 0;
+    }
+    dhmp_write(remote_buff->buff, upper_api_buf, mateLen, pos, false);
+    update_wr_local(pos+mateLen);
+    dataPos =  LOCAL_WR_PTR;
+    
+
+    // 再移动远端写偏移量
+    // pos = (LOCAL_WR_PTR + dataLen) % (remote_buff->size);
+    pos = LOCAL_WR_PTR;
+    if(pos + dataLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dataLen -= left_size;
+        pos = 0;
+    }
+    update_wr_local(pos+dataLen);
+    update_wr_remote();
+    return dataPos;
+}
+
+// 写data数据，写到预留好的位置上去
+void rb_write_data (void *upper_api_buf, int dataPos, int dataLen)
+{
+    // INFO_LOG("rb_write_data dataPos is %u, dataLen is %u", dataPos, dataLen);
+    int pos = dataPos;
+    if(pos + dataLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        upper_api_buf += left_size;
+        dataLen -= left_size;
+        pos = 0;
+    }
+    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
+}
+
+
+void* reader_thread(void * args)
+{
+    int count = 0;
+    char * upperBuffer;
+
+	pthread_detach(pthread_self());
+    while(local_recv_buff == NULL);
+    while(local_recv_buff->buff_addr == NULL);
+    DEBUG_LOG("------------------------Reader thread create---------------------------------------\n");
+
+    /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
+    // memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);
+    upperBuffer = (char*) malloc(SINGLE_SIZE);
+    for(;;)
+    {
+        if(read_one_log(upperBuffer))
+        {
+            INFO_LOG("Reader has read log [%d] \"%s\"", count, upperBuffer);
+            memset(upperBuffer, 0 , SINGLE_SIZE);
+            count++;
+        }
+        if(count == REPEAT)
+            break;
+    }
+    INFO_LOG("reader_thread read all logs and exit!");
+    free(upperBuffer);
+    pthread_exit(0);
+}
+
 bool read_one_log(void* upperAddr)
 {
+    int datasize = 0;
     logEntry log;
-
+    memset(&log, 0, sizeof(logEntry));
+    
     if(!upperAddr)
         return false;
 
-    if(rb_data_size((Ringbuff*) local_recv_buff) < sizeof(logMateData))
+    datasize = rb_data_size((Ringbuff*) local_recv_buff);
+    // INFO_LOG("read_one_log: datasize is %d", datasize);
+    if( datasize < sizeof(logMateData))
         return false;
     else
     {
-        rb_read(&log.mateData, sizeof(logMateData), true);
-        if(test_done(PTR_LOG_VALUE_TAG_ADDR(&log)))
+        rb_read(&(log), sizeof(logMateData), true);
+        int offset = PTR_LOG_VALUE_TAG_LEN(&log);
+        void *addr = (void*)LOCAL_RD_ADDR + offset;
+        // INFO_LOG("read_one_log: key_len is %d, value_len is %d, offset is %d, addr is %p", \
+        //                         KEY_LEN(log), VALUE_LEN(log), offset, addr);
+        if(test_done(addr))
         {
             rb_read(NULL, sizeof(logEntry) + KEY_LEN(log), false);
             rb_read(upperAddr, VALUE_LEN(log), false);
@@ -206,56 +270,6 @@ bool read_one_log(void* upperAddr)
             return false;
     }
 }
-
-
-
-
-// 写元数据，并提前移动远端写指针，预留出data的位置
-int rb_write_mate (void *upper_api_buf, unsigned int mateLen, unsigned int dataLen)
-{
-    int totalLen = mateLen + dataLen;
-    int dataPos = -1;
-    if(!check_remote_size(remote_buff, totalLen))
-        return -1;
-
-    // 先写 mate 数据
-    int pos = get_wr_local();
-    if(pos + mateLen > remote_buff->size)
-    {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, 0, false);
-        upper_api_buf += left_size;
-        mateLen -= left_size;
-        pos = 0;
-    }
-    dhmp_write(remote_buff->buff, upper_api_buf, mateLen, pos, false);
-    update_wr_local(pos+mateLen);
-    dataPos = get_wr_local();
-
-    // 再移动远端写偏移量
-    pos = (get_wr_local() + dataLen) % (remote_buff->size);
-    update_wr_local(pos);
-    update_wr_remote();
-    return dataPos;
-}
-
-// 写data数据，写到预留好的位置上去
-void rb_write_data (void *upper_api_buf, unsigned int dataPos, unsigned int dataLen)
-{
-    // INFO_LOG("rb_write_data dataPos is %u, dataLen is %u", dataPos, dataLen);
-    int pos = dataPos;
-    if(pos + dataLen > remote_buff->size)
-    {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, 0, false);
-        upper_api_buf += left_size;
-        dataLen -= left_size;
-        pos = 0;
-    }
-    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
-}
-
-
 
 
 // rb_read在关键路径上
@@ -273,26 +287,27 @@ bool rb_read (void *buf, int len, bool isCopy)
     if(pos + len > buff_size)
     {
         int left_size = buff_size - pos;
-        if(!buf)
+        if(buf)
         {
             memcpy(buf, local_recv_buff->buff_addr, left_size);
             /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
-            memset(local_recv_buff->buff_addr, 0 , left_size);
+            if(!isCopy)
+                memset(local_recv_buff->buff_addr, 0 , left_size);
             buf += left_size;
         }
         len -= left_size;
         pos = 0;
     }
 
-    if(!buf)
+    if(buf)
     {
         memcpy(buf, local_recv_buff->buff_addr + pos, len);
-        memset(local_recv_buff->buff_addr + pos , 0 , len);
+        if(!isCopy)
+            memset(local_recv_buff->buff_addr + pos , 0 , len);
     }
         
     if(!isCopy)
         local_recv_buff->rd_pointer = pos + len;
-
     return true;
 }
 
@@ -304,7 +319,7 @@ bool rb_write (void *upper_api_buf, int len)
     if(!check_remote_size(remote_buff, len))
         return false;
 
-    int pos = get_wr_local();
+    int pos =  LOCAL_WR_PTR;
     if(pos + len > remote_buff->size) // 写入的数据加上超过循环buff大小
     {
         int left_size = remote_buff->size - pos;
@@ -329,7 +344,7 @@ bool rb_write (void *upper_api_buf, int len)
 
 void buff_init()
 {
-    pthread_t writerForRemote, readerForLocal;
+    pthread_t writerForRemote, readerForLocal, nic_thead;
     // 头节点
     if(server->server_id == 0)
     {
@@ -345,7 +360,6 @@ void buff_init()
     if( next_node == -1){
         // 尾节点
         DEBUG_LOG("Tail node is %d", server->server_id);
-        DEBUG_LOG("------------------------Reader thread create---------------------------------------\n");
         DEBUG_UPPER_BUFFER = malloc(SINGLE_SIZE);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
         pthread_create(&readerForLocal, NULL, reader_thread, NULL);
@@ -362,9 +376,9 @@ void buff_init()
         }
         DEBUG_LOG("Sucess malloc buff from node %d", next_node);
         remote_buff->node_id = next_node;
-        remote_buff->size = BUFFER_SIZE;
-        DEBUG_LOG("------------------------Write thread create---------------------------------------\n");
+        remote_buff->size = TOTAL_SIZE;
         pthread_create(&writerForRemote, NULL, writer_thread, NULL);
+        pthread_create(&nic_thead, NULL, NIC_thread, NULL);
     }
     // void * peer_buff_mate = dhmp_malloc(sizeof(Ringbuff), client_find_server_id());
 }
@@ -374,10 +388,10 @@ void buff_init()
 // 	pthread_detach(pthread_self());
 //     while(local_recv_buff == NULL);
 
-//     unsigned int datasize = rb_data_size((Ringbuff*) local_recv_buff);
-//     unsigned int offset = 0, pos;
-//     unsigned int buff_size = local_recv_buff->size;
-//     // unsigned int peeding_size = sizeof(logMateData);
+//     int datasize = rb_data_size((Ringbuff*) local_recv_buff);
+//     int offset = 0, pos;
+//     int buff_size = local_recv_buff->size;
+//     // int peeding_size = sizeof(logMateData);
 //     enum log_read_state STATE = MID_READ_WAIT;
 
 //     logEntry log;

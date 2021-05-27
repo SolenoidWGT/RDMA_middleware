@@ -2,7 +2,7 @@
 
 
 
-unQueue* initQueue(size_t entry_size, unsigned int nums)
+unQueue* initQueue(size_t entry_size, int nums)
 {
     unQueue * q = (unQueue *) malloc(sizeof(unQueue));
     q->entry_size = entry_size;

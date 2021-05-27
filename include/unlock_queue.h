@@ -13,7 +13,7 @@ typedef struct unlock_queue
 }unQueue;
 
 
-unQueue* initQueue(size_t entry_size, unsigned int nums);
+unQueue* initQueue(size_t entry_size, int nums);
 void freeQueue(unQueue * q);
 int putQueue(unQueue * q, void * data);
 int getQueue(unQueue *q, void * data);
