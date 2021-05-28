@@ -2,3 +2,5 @@ build/
 lib/
 bin/*
 !bin/*.sh
+*.[oa]
+*~
