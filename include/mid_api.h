@@ -42,5 +42,6 @@ int read_log_key(int limits);
 int read_log_value(int limits);
 void pop_log();
 void* top_log();
+int judge_key_dirty(void * key);
 
 #endif
