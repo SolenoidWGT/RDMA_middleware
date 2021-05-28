@@ -365,6 +365,43 @@ char index_char(void* addr, int offset)
     return *(char*)(local_recv_buff->buff_addr + pos);
 }
 
+
+void example()
+{
+    int you_want_parse_log_nums = 1;
+    int can_parse_log_nums = 0;
+    
+    read_log_key(1024);
+    can_parse_log_nums = read_log_value(you_want_parse_log_nums);
+
+    if(can_parse_log_nums < you_want_parse_log_nums)
+        INFO_LOG("可以解析的log数量少于希望解析的数量！");
+
+    while(can_parse_log_nums > 0)
+    {
+        void *value_addr = top_log();
+
+        /* do sommeting begin */
+
+        /* do sommeting end */
+        can_parse_log_nums--;
+        pop_log();
+    }
+}
+
+void* top_log()
+{
+    logEntry * log;
+    if(!emptyQueue(executing_queue))
+    {
+        topQueue(executing_queue, &log);
+        return get_value_addr(log);
+    }
+    else
+        return NULL;
+}
+
+
 void* get_key_addr(logEntry * log)
 {
     if(log->key_addr)
@@ -509,18 +546,14 @@ int read_log_value(int limits)
 }
 
 
-int free_log(int limits)
+void pop_log()
 {
     logEntry * log;
     void * key_addr;
     int buff_size = local_recv_buff->size;
-    int free_num = 0;
 
-    while(!emptyQueue(executing_queue))
+    if(!emptyQueue(executing_queue))
     {
-        if(free_num >= limits)
-            break;
-
         topQueue(executing_queue, &log);
         key_addr = get_key_addr(log);
 
@@ -558,10 +591,7 @@ int free_log(int limits)
             free(log->value_addr);
 
         free(log);
-          
-        free_num++;
     }
-    return free_num;
 }
 
 

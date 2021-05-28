@@ -33,10 +33,14 @@ char index_char(void* addr, int offset);
 void memcpy_buffer(void* dest, void* src, int len);
 int next_log(void* now_log_addr, void** next_log_addr, void** value_addr, \
                 int *key_len, int *value_len);
-                
-int free_log(int limits);
+
 
 /* */
-void* log_value_addr();
+void* get_key_addr(logEntry * log);
+void* get_value_addr(logEntry * log);
+int read_log_key(int limits);
+int read_log_value(int limits);
+void pop_log();
+void* top_log();
 
 #endif
