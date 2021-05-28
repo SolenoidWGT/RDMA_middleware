@@ -16,7 +16,28 @@
 #include "mid_api.h"
 
 
+enum log_read_state {
+	READ_NO_LOG,
+    READ_LOG_KEY,
+    READ_LOG_VALUE
+};
 
+typedef struct logMateData
+{
+    int key_length;            //  key部分长度
+    int value_length;          //  data部分长度
+    // char data[];                        //  key + value
+}logMateData;
+
+typedef struct logEntry
+{
+    logMateData mateData;
+    int              log_pos;       // 当前log在buffer中的下标，对读写者均有用
+    void*            dataAddr;      // TODO：这个域需要保留吗？
+    void*            key_addr;      // 如果key被截断，则这里存放memcpy后的key指针，否则为NULL
+    void*            value_addr;    // 如果value被阶段，这里存放memecpy后的value指针。否则为NULL
+    /* data */
+}logEntry;
 
 
 // #define GET_BUFF_MR_ADDR(PTR) ( ((Ringbuff*)(PTR->addr))->buff )
@@ -96,6 +117,11 @@ extern RemoteRingbuff * remote_buff;
 bool rb_write (void *upper_api_buf, int len);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 void buff_init();
+
+void* get_key_addr(logEntry * log);
+void* get_value_addr(logEntry * log);
+
+
 
 //计算数据空间大小
 static inline int rb_data_size (Ringbuff *rb)    
