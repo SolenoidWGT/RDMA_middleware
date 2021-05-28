@@ -26,6 +26,8 @@ typedef struct logEntry
     /* data */
 }logEntry;
 
+
+/* 旧接口，不要用 */
 void* next_byte(void* addr);
 char next_char(void* addr);
 char get_char(void* addr);
@@ -35,7 +37,7 @@ int next_log(void* now_log_addr, void** next_log_addr, void** value_addr, \
                 int *key_len, int *value_len);
 
 
-/* */
+/* 新接口 */
 void* get_key_addr(logEntry * log);
 void* get_value_addr(logEntry * log);
 int read_log_key(int limits);
