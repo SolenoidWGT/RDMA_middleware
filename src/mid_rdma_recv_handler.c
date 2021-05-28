@@ -120,6 +120,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 		local_recv_buff->wr_pointer = 0;
 		local_recv_buff->rd_pointer = 0;
 		local_recv_buff->size = TOTAL_SIZE;
+		local_recv_buff->rd_key_pointer = 0;
 		
 
 		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, TOTAL_SIZE);

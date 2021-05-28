@@ -28,8 +28,7 @@ int putQueue(unQueue * q, void * data)
         return 0;   /* 队列满 */
     else
     {
-        int tp_wid = q->wid;
-        void * addr = (q->data + ((int)q->entry_size * tp_wid));
+        void * addr = (q->data + ((int)q->entry_size * q->wid));
         memcpy(addr, data, q->entry_size);
         q->wid = (q->wid + 1) % q->len;
         return 1;
@@ -37,18 +36,21 @@ int putQueue(unQueue * q, void * data)
 }
 
 
-int getQueue(unQueue *q, void * data)
+void popQueue(unQueue *q)
 {
     if(q->wid == q->rid)
-        return 0;   /* 队列空 */
+    {}
     else
-    {
-        int tp_rid = q->rid;
-        void * addr = (q->data + ((int)q->entry_size * tp_rid));
-        memcpy(data, addr, q->entry_size);
         q->rid = (q->rid + 1) % q->len;
-        return 1;
-    }
 }
 
 
+int emptyQueue(unQueue *q)
+{
+    return (q->wid == q->rid);
+}
+
+void topQueue(unQueue *q, void* buff)
+{
+    memcpy(buff, q->data + ((int)q->entry_size * q->rid), q->entry_size);
+}

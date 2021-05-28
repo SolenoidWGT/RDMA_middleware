@@ -16,6 +16,9 @@ typedef struct unlock_queue
 unQueue* initQueue(size_t entry_size, int nums);
 void freeQueue(unQueue * q);
 int putQueue(unQueue * q, void * data);
-int getQueue(unQueue *q, void * data);
+void popQueue(unQueue *q);
+int emptyQueue(unQueue *q);
+void topQueue(unQueue *q, void* buff);
+
 
 #endif
