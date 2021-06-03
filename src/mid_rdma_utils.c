@@ -9,7 +9,7 @@
 // void mm()
 // {
 // 		/* NVM 内存分配*/
-// 	void * addr= numa_alloc_onnode(response.req_info.req_size, server->config.mem_infos->nvm_node);
+// 	void * addr= numa_alloc_onnode(response.req_info.req_size, server_instance->config.mem_infos->nvm_node);
 
 // 	/*内存注册*/
 // 	dev=dhmp_get_dev_from_server();

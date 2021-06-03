@@ -12,7 +12,7 @@
 #include "../include/dhmp_log.h"
 
 
-struct dhmp_server *server=NULL;
+struct dhmp_server *server_instance=NULL;
 struct dhmp_client *client=NULL;
 
 struct dhmp_device *dhmp_get_dev_from_client()
@@ -29,14 +29,14 @@ struct dhmp_device *dhmp_get_dev_from_client()
 }
 
 /**
- *	dhmp_get_dev_from_server:get the dev_ptr from dev_list of server.
+ *	dhmp_get_dev_from_server:get the dev_ptr from dev_list of server_instance.
  */
 struct dhmp_device *dhmp_get_dev_from_server()
 {
 	struct dhmp_device *res_dev_ptr=NULL;
-	if(!list_empty(&server->dev_list))
+	if(!list_empty(&server_instance->dev_list))
 	{
-		res_dev_ptr=list_first_entry(&server->dev_list,
+		res_dev_ptr=list_first_entry(&server_instance->dev_list,
 									struct dhmp_device,
 									dev_entry);
 	}
@@ -83,7 +83,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id)
 										sizeof(struct dhmp_transport*));
 	for(i=0; i<client->config.nets_cnt; i++)
 	{
-		/*server skip himself to avoid connecting himself*/
+		/*server_instance skip himself to avoid connecting himself*/
 		if(server_id == i)
 		{
 			client->node_id = i;
@@ -168,48 +168,48 @@ struct dhmp_server * dhmp_server_init()
 {
 	int i,err=0;
 
-	server=(struct dhmp_server *)malloc(sizeof(struct dhmp_server));
-	if(!server)
+	server_instance=(struct dhmp_server *)malloc(sizeof(struct dhmp_server));
+	if(!server_instance)
 	{
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
 	
 	dhmp_hash_init();
-	dhmp_config_init(&server->config, false);
-	dhmp_context_init(&server->ctx);
-	server->server_id = server->config.curnet_id;
+	dhmp_config_init(&server_instance->config, false);
+	dhmp_context_init(&server_instance->ctx);
+	server_instance->server_id = server_instance->config.curnet_id;
 
 	/*init client transport list*/
-	server->cur_connections=0;
-	pthread_mutex_init(&server->mutex_client_list, NULL);
-	INIT_LIST_HEAD(&server->client_list);
+	server_instance->cur_connections=0;
+	pthread_mutex_init(&server_instance->mutex_client_list, NULL);
+	INIT_LIST_HEAD(&server_instance->client_list);
 
 	/*init list about rdma device*/
-	INIT_LIST_HEAD(&server->dev_list);
-	dhmp_dev_list_init(&server->dev_list);
+	INIT_LIST_HEAD(&server_instance->dev_list);
+	dhmp_dev_list_init(&server_instance->dev_list);
 
 
-	server->listen_trans=dhmp_transport_create(&server->ctx,
+	server_instance->listen_trans=dhmp_transport_create(&server_instance->ctx,
 											dhmp_get_dev_from_server(),
 											true, false);
-	if(!server->listen_trans)
+	if(!server_instance->listen_trans)
 	{
 		ERROR_LOG("create rdma transport error.");
 		exit(-1);
 	}
-	err=dhmp_transport_listen(server->listen_trans,
-					server->config.net_infos[server->config.curnet_id].port);
+	err=dhmp_transport_listen(server_instance->listen_trans,
+					server_instance->config.net_infos[server_instance->config.curnet_id].port);
 	if(err)
 		exit(- 1);
-	return server;
+	return server_instance;
 }
 
 
 void dhmp_server_destroy()
 {
-	INFO_LOG("server destroy start.");
-	pthread_join(server->ctx.epoll_thread, NULL);
+	INFO_LOG("server_instance destroy start.");
+	pthread_join(server_instance->ctx.epoll_thread, NULL);
 	int err = 0;
 	// err = memkind_destroy_kind(pmem_kind);
     //     if(err)
@@ -218,8 +218,8 @@ void dhmp_server_destroy()
     //             return;
     //     }
 		
-	INFO_LOG("server destroy end.");
-	free(server);
+	INFO_LOG("server_instance destroy end.");
+	free(server_instance);
 }
 
 

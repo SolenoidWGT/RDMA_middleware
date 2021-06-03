@@ -782,7 +782,7 @@ void buff_init()
 {
     pthread_t writerForRemote, readerForLocal, nic_thead;
     // 头节点
-    if(server->server_id == 0)
+    if(server_instance->server_id == 0)
     {
         // 初始化本地 buff
 
@@ -791,11 +791,11 @@ void buff_init()
     remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
     memset(remote_buff, 0, sizeof(RemoteRingbuff));
 
-    int next_node = find_next_node(server->server_id);
+    int next_node = find_next_node(server_instance->server_id);
 
     if( next_node == -1){
         // 尾节点
-        DEBUG_LOG("Tail node is %d", server->server_id);
+        DEBUG_LOG("Tail node is %d", server_instance->server_id);
         DEBUG_UPPER_BUFFER = malloc(SINGLE_SIZE);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
         node_class = TAIL;

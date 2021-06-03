@@ -75,7 +75,7 @@ void *dhmp_malloc(size_t length, int nodeid)
 	rdma_trans = dhmp_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
-		ERROR_LOG("don't exist remote server.");
+		ERROR_LOG("don't exist remote server_instance.");
 		goto out;
 	}
 
@@ -134,7 +134,7 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 	rdma_trans = dhmp_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
-		ERROR_LOG("don't exist remote server.");
+		ERROR_LOG("don't exist remote server_instance.");
 		goto out;
 	}
 

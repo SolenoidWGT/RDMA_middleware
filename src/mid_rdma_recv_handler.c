@@ -49,7 +49,7 @@ static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
 	res_msg.data_size = sizeof(struct dhmp_mc_response);
 	res_msg.data= &response;
 	dhmp_post_send(rdma_trans, &res_msg);
-	/*count the server memory,and inform the watcher*/
+	/*count the server_instance memory,and inform the watcher*/
 	rdma_trans->nvm_used_size+=response.mr.length;
 
 	return ;
@@ -99,7 +99,7 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 
 	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_buff_request));
 	INFO_LOG ( "Upstream node id is  %d",  response.req_info.node_id);
-	response.node_id = server->server_id;
+	response.node_id = server_instance->server_id;
 	
 	dev=dhmp_get_dev_from_server();
 	if(local_recv_buff == NULL && local_recv_buff_mate == NULL)
@@ -218,7 +218,7 @@ static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct 
 	size_t length = response.req_info.req_size;
 	INFO_LOG ( "client operate size %d",length);
 
-	/*get server addr from dhmp_addr
+	/*get server_instance addr from dhmp_addr
 		server_addr 来自client向server请求的地址
 	*/
 	server_addr = response.req_info.server_addr;

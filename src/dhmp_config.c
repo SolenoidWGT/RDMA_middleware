@@ -17,7 +17,7 @@
 #define DHMP_DHMP_CONFIG_STR "dhmp_config"
 #define DHMP_CLIENT_STR "client"
 #define DHMP_LOG_LEVEL_STR "log_level"
-#define DHMP_SERVER_STR "server"
+#define DHMP_SERVER_STR "server_instance"
 #define DHMP_NIC_NAME_STR "nic_name"
 #define DHMP_ADDR_STR "addr"
 #define DHMP_PORT_STR "port"
@@ -220,10 +220,10 @@ static void dhmp_set_curnode_id ( struct dhmp_config* config_ptr )
 	}
 
 	if(res)
-		INFO_LOG("curnode server id is %d",config_ptr->curnet_id);
+		INFO_LOG("curnode server_instance id is %d",config_ptr->curnet_id);
 	else
 	{
-		ERROR_LOG("server addr in config.xml is error.");
+		ERROR_LOG("server_instance addr in config.xml is error.");
 		exit(-1);
 	}
 }

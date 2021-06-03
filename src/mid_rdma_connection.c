@@ -314,8 +314,8 @@ struct dhmp_transport* dhmp_is_exist_connection(struct sockaddr_in *sock)
 	inet_ntop(AF_INET, &(sock->sin_addr), cur_ip, sizeof(cur_ip));
 	cur_ip_len=strlen(cur_ip);
 	
-	pthread_mutex_lock(&server->mutex_client_list);
-	list_for_each_entry(rdma_trans, &server->client_list, client_entry)
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
 	{
 		inet_ntop(AF_INET, &(rdma_trans->peer_addr.sin_addr), travers_ip, sizeof(travers_ip));
 		travers_ip_len=strlen(travers_ip);
@@ -327,7 +327,7 @@ struct dhmp_transport* dhmp_is_exist_connection(struct sockaddr_in *sock)
 			break;
 		}
 	}
-	pthread_mutex_unlock(&server->mutex_client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
 
 	return res_trans;
 }
@@ -498,10 +498,10 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	}
 
 	// 新增当前server的客户端连接数目
-	++server->cur_connections;
-	pthread_mutex_lock(&server->mutex_client_list);
-	list_add_tail(&new_trans->client_entry, &server->client_list);
-	pthread_mutex_unlock(&server->mutex_client_list);
+	++server_instance->cur_connections;
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
 	
 	if(normal_trans)
 	{
@@ -553,12 +553,12 @@ static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
 	// 新增判断逻辑，分离server 和 client 的trans连接断开
-	if(server!=NULL && rdma_trans->is_server)
+	if(server_instance!=NULL && rdma_trans->is_server)
 	{
-		--server->cur_connections;
-		pthread_mutex_lock(&server->mutex_client_list);
+		--server_instance->cur_connections;
+		pthread_mutex_lock(&server_instance->mutex_client_list);
 		list_del(&rdma_trans->client_entry);
-		pthread_mutex_unlock(&server->mutex_client_list);
+		pthread_mutex_unlock(&server_instance->mutex_client_list);
 	}
 	return 0;
 }
@@ -570,12 +570,12 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 {
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_ERROR;
-	if(server!=NULL)
+	if(server_instance!=NULL)
 	{
-		--server->cur_connections;
-		pthread_mutex_lock(&server->mutex_client_list);
+		--server_instance->cur_connections;
+		pthread_mutex_lock(&server_instance->mutex_client_list);
 		list_del(&rdma_trans->client_entry);
-		pthread_mutex_unlock(&server->mutex_client_list);
+		pthread_mutex_unlock(&server_instance->mutex_client_list);
 	}
 	return 0;
 }
@@ -583,7 +583,7 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 // WGT
 static int on_cm_rejected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
-	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server [%d]-th", rdma_trans->node_id);
+	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server_instance [%d]-th", rdma_trans->node_id);
 	/*
 		注意，不能在这里面销毁trans，因为on_cm_rejected是在：dhmp_event_channel_handler 的 rdma_get_cm_event 循环中
 		如果在这里销毁就会产生未定义的行为，产生错误。
@@ -637,7 +637,7 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	// free(rdma_trans);
 	// rdma_trans = NULL;
 	
-	INFO_LOG("Free rdma_trans with server [%d]-th", node_id);
+	INFO_LOG("Free rdma_trans with server_instance [%d]-th", node_id);
 	INFO_LOG("rdma_trans state is %d",  rdma_trans->trans_state);
 	return 0;
 }
