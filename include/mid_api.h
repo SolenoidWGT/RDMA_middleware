@@ -19,4 +19,7 @@ int read_log_value(int limits);
 void pop_log();
 void* top_log();
 int judge_key_dirty(void * key);
+void clean_log();
+void send_log();
+
 #endif

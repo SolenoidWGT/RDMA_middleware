@@ -43,6 +43,9 @@ RemoteRingbuff * remote_buff;
 HashMap * dirty_map;
 unQueue* value_peeding_queue = NULL;
 unQueue* executing_queue = NULL;
+unQueue* sending_queue = NULL;
+unQueue* dirty_queue = NULL;
+int node_class;
 
 void * DEBUG_UPPER_BUFFER;
 
@@ -51,6 +54,8 @@ void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
+void head_node_write_log(char * key, char * value);
+
 
 void update_wr_remote()
 {
@@ -74,177 +79,6 @@ bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
     }
     else
         return true;
-}
-
-
-char * NAME_LISTS[REPEAT];
-const char * name = "wang guo teng";
-unQueue* valueQueue = NULL;
-void* writer_thread(void * args)
-{
-    int count = 0;
-    pthread_detach(pthread_self());
-
-    for(; count < REPEAT; count++)
-    {
-        char * ptr = (char * )malloc(SINGLE_SIZE);
-        NAME_LISTS[count] = ptr;
-        memset(ptr, 0 , SINGLE_SIZE);
-        strcpy(ptr, name);
-        ptr[0] = (char)('a' + count);
-        ptr[strlen(ptr) + TAG] = 1;     // strlen 长度不包含'\0'
-    }
-
-    count = 0;
-    valueQueue = initQueue(sizeof(void*), 1024);
-    DEBUG_LOG("------------------------Write thread create---------------------------------------\n");
-	while(count < REPEAT)
-	{
-        char * key = NAME_LISTS[count];
-        char * value = NAME_LISTS[count];
-        size_t key_len = strlen(NAME_LISTS[count]) + 1;
-        size_t value_len = strlen(NAME_LISTS[count]) + 1 + TAG;
-        size_t send_len = key_len + sizeof(logEntry);
-
-        logEntry *log = (logEntry*) malloc(send_len);
-        log->mateData.key_length = key_len;
-        log->mateData.value_length = value_len;
-        log->dataAddr = value;
-        memcpy(log + LOG_KEY_OFFSET(*log), key, key_len);
-
-        INFO_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
-                                KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
-
-        log->log_pos = rb_write_mate(log, send_len, value_len);
-        
-        if(log->log_pos == -1)
-        {
-            ERROR_LOG("rb_write_mate fail!");
-        }
-        else if(!putQueue(valueQueue, &log))
-        {
-            ERROR_LOG("valueQueue full!");
-        }
-        else
-        {
-            INFO_LOG("writer_thread write mate data of [%d] key \"%s\"", count, key);
-            count ++;
-        }
-	}
-    INFO_LOG("writer_thread write all mate data and exit!");
-	pthread_exit(0);
-}
-
-void * NIC_thread(void * args)
-{
-    logEntry * log= NULL;
-    int count = 0;
-
-    pthread_detach(pthread_self());
-    while(valueQueue == NULL);
-    for(;;)
-    {
-        if(!emptyQueue(valueQueue))
-        {
-            assert(log != NULL);
-            topQueue(valueQueue, &log);
-            popQueue(valueQueue);
-
-            int value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-            rb_write_data(log->dataAddr, value_pos, VALUE_LEN(*log));
-            free((void*)log);  /* 不需要free掉log->data， 因为log->data实际上就是log的末尾 */
-            count++;
-            INFO_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->dataAddr);
-        }
-        if(count == REPEAT)
-            break;
-    }
-    INFO_LOG("NIC_thread write all logs and exit!");
-    pthread_exit(0);
-}
-
-
-// 写元数据，并提前移动远端写指针，预留出data的位置
-int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen)
-{
-    int totalLen = mateLen + dataLen;
-    int log_pos =  LOCAL_WR_PTR;
-    if(!check_remote_size(remote_buff, totalLen))
-        return -1;
-
-    // 先写 mate 数据
-    int pos = LOCAL_WR_PTR;
-    if(pos + mateLen > remote_buff->size)
-    {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
-        upper_api_buf += left_size;
-        mateLen -= left_size;
-        pos = 0;
-    }
-    dhmp_write(remote_buff->buff, upper_api_buf, mateLen, pos, false);
-    update_wr_local(pos+mateLen);
-    
-
-    // 再移动远端写偏移量
-    // pos = (LOCAL_WR_PTR + dataLen) % (remote_buff->size);
-    pos = LOCAL_WR_PTR;
-    if(pos + dataLen > remote_buff->size)
-    {
-        int left_size = remote_buff->size - pos;
-        dataLen -= left_size;
-        pos = 0;
-    }
-    update_wr_local(pos+dataLen);
-    update_wr_remote();
-    return log_pos;
-}
-
-// 写data数据，写到预留好的位置上去
-void rb_write_data (void *upper_api_buf, int log_pos, int dataLen)
-{
-    // INFO_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
-    int pos = log_pos;
-
-    if(pos + dataLen > remote_buff->size)
-    {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
-        upper_api_buf += left_size;
-        dataLen -= left_size;
-        pos = 0;
-    }
-    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
-}
-
-
-void* reader_thread(void * args)
-{
-    int count = 0;
-    char * upperBuffer;
-
-	pthread_detach(pthread_self());
-    while(local_recv_buff == NULL);
-    while(local_recv_buff->buff_addr == NULL);
-    DEBUG_LOG("------------------------Reader thread create---------------------------------------\n");
-
-    /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
-    // memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);
-    upperBuffer = (char*) malloc(SINGLE_SIZE);
-    for(;;)
-    {
-        if(read_one_log(upperBuffer))
-        {
-            INFO_LOG("Reader has read log [%d] \"%s\"", count, upperBuffer);
-            memset(upperBuffer, 0 , SINGLE_SIZE);
-            count++;
-        }
-        if(count == REPEAT)
-            break;
-    }
-    INFO_LOG("reader_thread read all logs and exit!");
-    free(upperBuffer);
-    pthread_exit(0);
 }
 
 bool read_one_log(void* upperAddr)
@@ -365,8 +199,17 @@ char index_char(void* addr, int offset)
     return *(char*)(local_recv_buff->buff_addr + pos);
 }
 
+void head_node_example()
+{
+    for(;;)
+    {
+        char * key = "Key";
+        char * value = "Value";
+        head_node_write_log(key, value);
+    }
+}
 
-void example()
+void mid_node_example()
 {
     int you_want_parse_log_nums = 1;
     int can_parse_log_nums = 0;
@@ -380,13 +223,248 @@ void example()
     while(can_parse_log_nums > 0)
     {
         void *value_addr = top_log();
-
+        send_log();
         /* do sommeting begin */
 
         /* do sommeting end */
         can_parse_log_nums--;
-        pop_log();
+        clean_log();
     }
+}
+
+void tail_node_example()
+{
+    /* 和mid_node_example一样*/
+}
+
+
+/* 
+    ----------------------------------send 部分 ----------------------------------------
+    send部分需要注意，头节点是没有 local_recvebuffer的，所以nic_thread在发送log的时候需要区分这种情况
+*/
+
+
+char * NAME_LISTS[REPEAT];
+const char * name = "wang guo teng";
+unQueue* valueQueue = NULL;
+void* writer_thread(void * args)
+{
+    int count = 0;
+    pthread_detach(pthread_self());
+
+    for(; count < REPEAT; count++)
+    {
+        char * ptr = (char * )malloc(SINGLE_SIZE);
+        NAME_LISTS[count] = ptr;
+        memset(ptr, 0 , SINGLE_SIZE);
+        strcpy(ptr, name);
+        ptr[0] = (char)('a' + count);
+        ptr[strlen(ptr) + TAG] = 1;     // strlen 长度不包含'\0'
+    }
+
+    count = 0;
+    valueQueue = initQueue(sizeof(void*), 1024);
+    DEBUG_LOG("------------------------Write thread create---------------------------------------\n");
+	while(count < REPEAT)
+	{
+        char * key = NAME_LISTS[count];
+        char * value = NAME_LISTS[count];
+        head_node_write_log(key, value);
+        count++;
+	}
+    INFO_LOG("writer_thread write all mate data and exit!");
+	pthread_exit(0);
+}
+
+
+void head_node_write_log(char * key, char * value)
+{
+    char test = 1;
+    size_t key_len = strlen(key) + 1;
+    size_t value_len = strlen(value) + 1 + TAG;
+    size_t send_len = sizeof(logEntry) + key_len;
+    logEntry *log = (logEntry*) malloc(send_len);
+
+    log->mateData.key_length = key_len;
+    log->mateData.value_length = value_len;
+    log->key_addr = NULL;       /*XXX*/
+    log->value_addr = malloc(value_len);
+    memcpy((char*)log + LOG_KEY_OFFSET(*log), key, key_len);
+    memcpy(log->value_addr, value, value_len-1);
+    memcpy(log->value_addr + value_len-1, &test, TAG);
+
+    INFO_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
+                            KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
+    
+    log->log_pos = rb_write_mate(log, send_len, value_len);
+
+    if(unlikely(sending_queue == NULL))
+        sending_queue = initQueue(sizeof(void*), QUEUE_SIZE);
+
+    if(unlikely(log->log_pos == -1))
+        ERROR_LOG("rb_write_mate fail!");
+    else if(unlikely(!putQueue(sending_queue, &log)))
+        ERROR_LOG("valueQueue full!");
+    else
+        INFO_LOG("writer_thread write mate data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
+}
+
+// 将log从sending queue拿出来，复用log结构体
+// free_log 会把所有执行完的log发送出去
+void free_log(logEntry * log)
+{
+    /* 头节点不需要考虑截断的情况，也不需要移动读指针*/
+    if(node_class != HEAD)
+    {
+        void * key_addr;
+        int buff_size = local_recv_buff->size;
+        /* 移动读指针 */
+        local_recv_buff->rd_pointer = (local_recv_buff->rd_pointer + \
+                                                LOG_NEXT_OFFSET(*log)) & (buff_size - 1);
+
+        INFO_LOG("free_log： now rd_pointer is %d", local_recv_buff->rd_pointer);
+        /* TODO : 对于非头节点来说， 复用 log 结构体*/
+    }
+    
+    /* 如果key或者value被截断，或者其是头节点的临时buffer，则将其释放 */
+    if(log->key_is_cut)
+        free(log->key_addr);
+    if(log->value_is_cut)
+        free(log->value_addr);
+    free(log);     /* 对于头节点来说，不需要free掉log->key， 因为log->data实际上就是log的末尾 */
+}
+
+void * NIC_thread(void * args)
+{
+    logEntry * log= NULL;
+    int count = 0;
+    int value_pos;
+
+    pthread_detach(pthread_self());
+    while(sending_queue == NULL);
+    for(;;)
+    {
+        if(!emptyQueue(sending_queue))
+        {
+            topQueue(sending_queue, &log);
+            assert(log != NULL);
+            popQueue(sending_queue);
+
+            value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
+            rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
+
+            // free_log(log);
+            INFO_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
+            count++;
+        }
+        if(count == REPEAT)
+            break;
+    }
+    INFO_LOG("NIC_thread write all logs and exit!");
+    pthread_exit(0);
+}
+
+// 写元数据，并提前移动远端写指针，预留出data的位置
+int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen)
+{
+    int totalLen = mateLen + dataLen;
+    int log_pos =  LOCAL_WR_PTR;
+    if(!check_remote_size(remote_buff, totalLen))
+        return -1;
+
+    // 先写 mate 数据
+    int pos = LOCAL_WR_PTR;
+    if(pos + mateLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        upper_api_buf += left_size;
+        mateLen -= left_size;
+        pos = 0;
+    }
+    dhmp_write(remote_buff->buff, upper_api_buf, mateLen, pos, false);
+    update_wr_local(pos+mateLen);
+    
+
+    // 再移动远端写偏移量
+    // pos = (LOCAL_WR_PTR + dataLen) % (remote_buff->size);
+    pos = LOCAL_WR_PTR;
+    if(pos + dataLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dataLen -= left_size;
+        pos = 0;
+    }
+    update_wr_local(pos+dataLen);
+    update_wr_remote();
+    return log_pos;
+}
+
+// 写data数据，写到预留好的位置上去
+void rb_write_data (void *upper_api_buf, int log_pos, int dataLen)
+{
+    // INFO_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
+    int pos = log_pos;
+
+    if(pos + dataLen > remote_buff->size)
+    {
+        int left_size = remote_buff->size - pos;
+        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        upper_api_buf += left_size;
+        dataLen -= left_size;
+        pos = 0;
+    }
+    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
+}
+
+
+
+/* 
+    ----------------------------------Read 部分 ----------------------------------------
+    Read部分需要注意，尾节点是没有 remote_buff r的，所以执行完log后不需要再加入到 sending_queue
+*/
+
+void* reader_thread(void * args)
+{
+    int count = 0;
+
+	pthread_detach(pthread_self());
+    while(local_recv_buff == NULL);
+    while(local_recv_buff->buff_addr == NULL);
+    DEBUG_LOG("------------------------Reader thread create---------------------------------------\n");
+
+    /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
+    // memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);
+    for(;;)
+    {
+        int you_want_parse_log_nums = 1;
+        int can_parse_log_nums = 0;
+        
+        read_log_key(1024);
+        can_parse_log_nums = read_log_value(you_want_parse_log_nums);
+
+        if(can_parse_log_nums < you_want_parse_log_nums)
+        {
+            INFO_LOG("can_parse_log_nums less than you_want_parse_log_nums！");
+            continue;
+        }
+            
+        while(can_parse_log_nums > 0)
+        {
+            void *value_addr = top_log();
+            send_log();
+            /* do sommeting begin */
+            INFO_LOG("reader_thread has read log value is \"%s\"", value_addr);
+            count++;
+            /* do sommeting end */
+            can_parse_log_nums--;
+            clean_log();
+        }
+        if(count == REPEAT)
+            break;
+    }
+    INFO_LOG("reader_thread read all logs and exit!");
+    pthread_exit(0);
 }
 
 void* top_log()
@@ -466,9 +544,15 @@ int read_log_key(int limits)
             if(key_pos + KEY_LEN(*log) > buff_size)
             {
                 log->key_addr = malloc(KEY_LEN(*log));
+                log->key_is_cut = true;
                 rb_read(log->key_addr, key_pos, KEY_LEN(*log), true);
             }
-            
+            else
+            {
+                log->key_is_cut = false;
+                log->key_addr = local_recv_buff->buff_addr + log->log_pos + LOG_KEY_OFFSET(*log);
+            }
+                
             pos = (pos + LOG_NEXT_OFFSET(*log)) & (buff_size -1);
 
             /*  必须保证key是一个c语言风格的字符串 */
@@ -481,6 +565,11 @@ int read_log_key(int limits)
                 dirty_map->put(dirty_map, log->key_addr, (void*)(++count));
             }
 
+            /* 加入到 dirty_queue 中 */
+            if(unlikely(dirty_queue == NULL))
+                dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
+            putQueue(dirty_queue, &log);
+
             if(value_peeding_queue == NULL)
                 value_peeding_queue = initQueue(sizeof(void*), QUEUE_SIZE);
 
@@ -490,14 +579,15 @@ int read_log_key(int limits)
                 ERROR_LOG("value_peeding_queue is full!, log num is %d", value_peeding_queue->len);
                 exit(0);
             }
+
+            INFO_LOG("read_log_key: key is %s, key len is %d, value len is %d", \
+                                    log->key_addr, log->mateData.key_length, log->mateData.value_length);
             read_num++;
         }
     }
     local_recv_buff->rd_key_pointer = pos;
     return read_num;
 }
-
-
 
 int read_log_value(int limits)
 {
@@ -512,6 +602,8 @@ int read_log_value(int limits)
         else
         {
             topQueue(value_peeding_queue, &log);
+            popQueue(value_peeding_queue);   /*  将logEntry从 peedinmg value 队列中移除 */
+
             tag_addr = local_recv_buff->buff_addr + ((log->log_pos + LOG_VALUE_TAG_OFFSET(*log)) & (buffer_size - 1));
             if(test_done(tag_addr))
             {
@@ -521,8 +613,15 @@ int read_log_value(int limits)
                 {
                     /* value被截断，为其分配空间*/
                     log->value_addr = malloc(VALUE_LEN(*log));
+                    log->value_is_cut = true;
                     rb_read(log->value_addr, value_pos, VALUE_LEN(*log), true);
                 }
+                else
+                {
+                    log->value_is_cut = false;
+                    log->value_addr = local_recv_buff->buff_addr + log->log_pos + LOG_VALUE_OFFSET(*log);
+                }
+                
 
                 if(executing_queue == NULL)
                     executing_queue = initQueue(sizeof(void*), QUEUE_SIZE);
@@ -533,10 +632,9 @@ int read_log_value(int limits)
                     ERROR_LOG("executing_queue is full!, log num is %d", executing_queue->len);
                     exit(0);
                 }
-                
-                /*  将logEntry从 peedinmg value 队列中移除 */
-                popQueue(value_peeding_queue);
                 read_num++;
+                INFO_LOG("read_log_value: key is %s, key len is %d, value len is %d, value is %s", \
+                        log->key_addr, log->mateData.key_length, log->mateData.value_length, log->value_addr);
             }
             else
                 break;
@@ -545,16 +643,15 @@ int read_log_value(int limits)
     return read_num;
 }
 
-
-void pop_log()
+void clean_log()
 {
     logEntry * log;
     void * key_addr;
     int buff_size = local_recv_buff->size;
-
-    if(!emptyQueue(executing_queue))
+    if(!emptyQueue(dirty_queue))
     {
-        topQueue(executing_queue, &log);
+        topQueue(dirty_queue, &log);
+        popQueue(dirty_queue);
         key_addr = get_key_addr(log);
 
         /* 将执行完的key从脏表中移除 */
@@ -576,21 +673,30 @@ void pop_log()
             ERROR_LOG("A to be deleted log is not in the dirty map! something wrong!");
             exit(0);
         }
+        INFO_LOG("clean_log: key is %s", log->key_addr);
+       
+        free_log(log);      /* 只有执行完后才可以释放log*/
+    }
+}
 
-        /* 移动读指针 */
-        local_recv_buff->rd_pointer = (local_recv_buff->rd_pointer + \
-                                             LOG_NEXT_OFFSET(*log)) & (buff_size - 1);
+// 将log从executing_queuepop出来，放入到sending queue中。
+void send_log()
+{
+    logEntry * log;
+
+    if(!emptyQueue(executing_queue))
+    {
+        topQueue(executing_queue, &log);
+        popQueue(executing_queue);  /* 将其从 executing_queue 中pop掉 */
+
+        if(node_class != TAIL)
+            putQueue(sending_queue, &log);  /* 将其放入到 sending_queue 中 */
+            
+        // /* 加入到 dirty_queue 中 */
+        // if(unlikely(dirty_queue == NULL))
+        //     dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
         
-        /* 将其从 executing_queue 中pop掉 */
-        popQueue(executing_queue);
-
-        /* 如果key或者value被截断，则将其释放 */
-        if(log->key_addr)
-            free(log->key_addr);
-        if(log->value_addr)
-            free(log->value_addr);
-
-        free(log);
+        // putQueue(dirty_queue, &log);
     }
 }
 
@@ -672,8 +778,6 @@ bool rb_write (void *upper_api_buf, int len)
 }
 
 
-
-
 void buff_init()
 {
     pthread_t writerForRemote, readerForLocal, nic_thead;
@@ -694,6 +798,7 @@ void buff_init()
         DEBUG_LOG("Tail node is %d", server->server_id);
         DEBUG_UPPER_BUFFER = malloc(SINGLE_SIZE);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
+        node_class = TAIL;
         pthread_create(&readerForLocal, NULL, reader_thread, NULL);
     }
     else
@@ -709,6 +814,7 @@ void buff_init()
         DEBUG_LOG("Sucess malloc buff from node %d", next_node);
         remote_buff->node_id = next_node;
         remote_buff->size = TOTAL_SIZE;
+        node_class = HEAD;
         pthread_create(&writerForRemote, NULL, writer_thread, NULL);
         pthread_create(&nic_thead, NULL, NIC_thread, NULL);
     }

@@ -8,7 +8,7 @@ unQueue* initQueue(size_t entry_size, int nums)
     q->entry_size = entry_size;
     q->len = nums;
     q->rid = 0;
-    q->rid = 0;
+    q->wid = 0;
     q->data = malloc(entry_size * (nums+1));
     return q;
 }
@@ -28,7 +28,7 @@ int putQueue(unQueue * q, void * data)
         return 0;   /* 队列满 */
     else
     {
-        void * addr = (q->data + ((int)q->entry_size * q->wid));
+        void * addr = (q->data + (q->entry_size * q->wid));
         memcpy(addr, data, q->entry_size);
         q->wid = (q->wid + 1) % q->len;
         return 1;
