@@ -9,8 +9,7 @@
 #ifndef LOG_COPY_H
 #define LOG_COPY_H
 
-#define TOTAL_SIZE 1024*8
-#define BUFFER_SIZE (TOTAL_SIZE - 1)
+#define TOTAL_SIZE 64
 
 #include "dhmp_transport.h"
 #include "mid_api.h"

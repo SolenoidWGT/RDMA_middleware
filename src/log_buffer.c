@@ -31,7 +31,7 @@
 
 #define SIZE 1024*8
 #define WAIT_TIME 5
-#define REPEAT 3
+#define REPEAT 20
 #define SINGLE_SIZE 1024
 #define SINGLE_READ_SIZE 4
 #define TAG 1
@@ -54,7 +54,7 @@ void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
-void head_node_write_log(char * key, char * value);
+bool head_node_write_log(char * key, char * value);
 
 
 void update_wr_remote()
@@ -91,7 +91,7 @@ bool read_one_log(void* upperAddr)
         return false;
 
     datasize = rb_data_size((Ringbuff*) local_recv_buff);
-    // INFO_LOG("read_one_log: datasize is %d", datasize);
+    // MID_LOG("read_one_log: datasize is %d", datasize);
     if( datasize < sizeof(logMateData))
         return false;
     else
@@ -99,7 +99,7 @@ bool read_one_log(void* upperAddr)
         rb_read(&(log), -1, sizeof(logMateData), true);
         int offset = LOG_VALUE_TAG_OFFSET(log);
         void *addr = (void*)LOCAL_RD_ADDR + offset;
-        // INFO_LOG("read_one_log: key_len is %d, value_len is %d, offset is %d, addr is %p", \
+        // MID_LOG("read_one_log: key_len is %d, value_len is %d, offset is %d, addr is %p", \
         //                         KEY_LEN(log), VALUE_LEN(log), offset, addr);
         if(test_done(addr))
         {
@@ -218,7 +218,7 @@ void mid_node_example()
     can_parse_log_nums = read_log_value(you_want_parse_log_nums);
 
     if(can_parse_log_nums < you_want_parse_log_nums)
-        INFO_LOG("可以解析的log数量少于希望解析的数量！");
+        MID_LOG("可以解析的log数量少于希望解析的数量！");
 
     while(can_parse_log_nums > 0)
     {
@@ -245,7 +245,7 @@ void tail_node_example()
 
 
 char * NAME_LISTS[REPEAT];
-const char * name = "wang guo teng";
+const char * name = "1234567";  // 算上末尾的终结符，一共16bit大小
 unQueue* valueQueue = NULL;
 void* writer_thread(void * args)
 {
@@ -264,20 +264,20 @@ void* writer_thread(void * args)
 
     count = 0;
     valueQueue = initQueue(sizeof(void*), 1024);
-    DEBUG_LOG("------------------------Write thread create---------------------------------------\n");
+    MID_LOG("------------------------Write thread create---------------------------------------\n");
 	while(count < REPEAT)
 	{
         char * key = NAME_LISTS[count];
         char * value = NAME_LISTS[count];
-        head_node_write_log(key, value);
-        count++;
+        if(head_node_write_log(key, value))
+            count++;
 	}
-    INFO_LOG("writer_thread write all mate data and exit!");
+    MID_LOG("writer_thread write all mate data and exit!");
 	pthread_exit(0);
 }
 
 
-void head_node_write_log(char * key, char * value)
+bool head_node_write_log(char * key, char * value)
 {
     char test = 1;
     size_t key_len = strlen(key) + 1;
@@ -293,20 +293,28 @@ void head_node_write_log(char * key, char * value)
     memcpy(log->value_addr, value, value_len-1);
     memcpy(log->value_addr + value_len-1, &test, TAG);
 
-    INFO_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
+    MID_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
                             KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
+    if(!check_remote_size(remote_buff, send_len + value_len)){
+        INFO_LOG("remote buffer is full, please retry!");
+        return false;
+    }
+
     log->log_pos = rb_write_mate(log, send_len, value_len);
 
-    if(unlikely(sending_queue == NULL))
-        sending_queue = initQueue(sizeof(void*), QUEUE_SIZE);
-
-    if(unlikely(log->log_pos == -1))
+    if(unlikely(log->log_pos == -1)){
         ERROR_LOG("rb_write_mate fail!");
-    else if(unlikely(!putQueue(sending_queue, &log)))
+        return false;
+    }
+    else if(unlikely(!putQueue(sending_queue, &log))){
         ERROR_LOG("valueQueue full!");
-    else
-        INFO_LOG("writer_thread write mate data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
+        return false;
+    }
+    else{
+        MID_LOG("writer_thread write mate data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
+        return true;
+    }  
 }
 
 // 将log从sending queue拿出来，复用log结构体
@@ -322,7 +330,7 @@ void free_log(logEntry * log)
         local_recv_buff->rd_pointer = (local_recv_buff->rd_pointer + \
                                                 LOG_NEXT_OFFSET(*log)) & (buff_size - 1);
 
-        INFO_LOG("free_log： now rd_pointer is %d", local_recv_buff->rd_pointer);
+        MID_LOG("free_log： now rd_pointer is %d", local_recv_buff->rd_pointer);
         /* TODO : 对于非头节点来说， 复用 log 结构体*/
     }
     
@@ -354,13 +362,13 @@ void * NIC_thread(void * args)
             rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
 
             // free_log(log);
-            INFO_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
+            MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
             count++;
         }
         if(count == REPEAT)
             break;
     }
-    INFO_LOG("NIC_thread write all logs and exit!");
+    MID_LOG("NIC_thread write all logs and exit!");
     pthread_exit(0);
 }
 
@@ -403,7 +411,7 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen)
 // 写data数据，写到预留好的位置上去
 void rb_write_data (void *upper_api_buf, int log_pos, int dataLen)
 {
-    // INFO_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
+    // MID_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
     int pos = log_pos;
 
     if(pos + dataLen > remote_buff->size)
@@ -431,7 +439,7 @@ void* reader_thread(void * args)
 	pthread_detach(pthread_self());
     while(local_recv_buff == NULL);
     while(local_recv_buff->buff_addr == NULL);
-    DEBUG_LOG("------------------------Reader thread create---------------------------------------\n");
+    MID_LOG("------------------------Reader thread create---------------------------------------\n");
 
     /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
     // memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);
@@ -445,7 +453,8 @@ void* reader_thread(void * args)
 
         if(can_parse_log_nums < you_want_parse_log_nums)
         {
-            INFO_LOG("can_parse_log_nums less than you_want_parse_log_nums！");
+            // MID_LOG("can_parse_log_nums less than you_want_parse_log_nums！");
+            //sleep(1);
             continue;
         }
             
@@ -454,7 +463,7 @@ void* reader_thread(void * args)
             void *value_addr = top_log();
             send_log();
             /* do sommeting begin */
-            INFO_LOG("reader_thread has read log value is \"%s\"", value_addr);
+            MID_LOG("reader_thread has read log value is \"%s\"", value_addr);
             count++;
             /* do sommeting end */
             can_parse_log_nums--;
@@ -463,7 +472,7 @@ void* reader_thread(void * args)
         if(count == REPEAT)
             break;
     }
-    INFO_LOG("reader_thread read all logs and exit!");
+    MID_LOG("reader_thread read all logs and exit!");
     pthread_exit(0);
 }
 
@@ -541,16 +550,18 @@ int read_log_key(int limits)
 
              /*  如果key发生截断，则把key拷贝出来 */
             key_pos = (pos + LOG_KEY_OFFSET(*log)) & (buff_size - 1);
-            if(key_pos + KEY_LEN(*log) > buff_size)
+            if(key_pos + KEY_LEN(*log) >= buff_size)
             {
                 log->key_addr = malloc(KEY_LEN(*log));
                 log->key_is_cut = true;
                 rb_read(log->key_addr, key_pos, KEY_LEN(*log), true);
+                MID_LOG("read_log_key: key is cut, key is \"%s\"", log->key_addr);
             }
             else
             {
                 log->key_is_cut = false;
-                log->key_addr = local_recv_buff->buff_addr + log->log_pos + LOG_KEY_OFFSET(*log);
+                log->key_addr = local_recv_buff->buff_addr + key_pos;
+                //MID_LOG("read_log_key: key is not cut, key is \"%s\"", log->key_addr);
             }
                 
             pos = (pos + LOG_NEXT_OFFSET(*log)) & (buff_size -1);
@@ -566,12 +577,7 @@ int read_log_key(int limits)
             }
 
             /* 加入到 dirty_queue 中 */
-            if(unlikely(dirty_queue == NULL))
-                dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
             putQueue(dirty_queue, &log);
-
-            if(value_peeding_queue == NULL)
-                value_peeding_queue = initQueue(sizeof(void*), QUEUE_SIZE);
 
              /*  将logEntry放入到value peediing队列中 */
             if(!putQueue(value_peeding_queue, &log))
@@ -580,7 +586,7 @@ int read_log_key(int limits)
                 exit(0);
             }
 
-            INFO_LOG("read_log_key: key is %s, key len is %d, value len is %d", \
+            MID_LOG("read_log_key: key is \"%s\", key len is %d, value len is %d", \
                                     log->key_addr, log->mateData.key_length, log->mateData.value_length);
             read_num++;
         }
@@ -602,30 +608,27 @@ int read_log_value(int limits)
         else
         {
             topQueue(value_peeding_queue, &log);
-            popQueue(value_peeding_queue);   /*  将logEntry从 peedinmg value 队列中移除 */
 
             tag_addr = local_recv_buff->buff_addr + ((log->log_pos + LOG_VALUE_TAG_OFFSET(*log)) & (buffer_size - 1));
             if(test_done(tag_addr))
             {
                 /* 考虑value是否被截断 */
                 int value_pos = ((log->log_pos + LOG_VALUE_OFFSET(*log)) & (buffer_size - 1));
-                if(value_pos + VALUE_LEN(*log) > buffer_size)
+                if(value_pos + VALUE_LEN(*log) >= buffer_size)
                 {
                     /* value被截断，为其分配空间*/
                     log->value_addr = malloc(VALUE_LEN(*log));
                     log->value_is_cut = true;
                     rb_read(log->value_addr, value_pos, VALUE_LEN(*log), true);
+                    MID_LOG("read_log_value: value is cut, value is \"%s\"", log->value_addr);
                 }
                 else
                 {
                     log->value_is_cut = false;
-                    log->value_addr = local_recv_buff->buff_addr + log->log_pos + LOG_VALUE_OFFSET(*log);
+                    log->value_addr = local_recv_buff->buff_addr + value_pos;
+                    //MID_LOG("read_log_value: value is not cut, value is \"%s\"", log->value_addr);
                 }
                 
-
-                if(executing_queue == NULL)
-                    executing_queue = initQueue(sizeof(void*), QUEUE_SIZE);
-
                 /*  将logEntry放入到 executing_queue 队列中 */
                 if(!putQueue(executing_queue, &log))
                 {
@@ -633,11 +636,11 @@ int read_log_value(int limits)
                     exit(0);
                 }
                 read_num++;
-                INFO_LOG("read_log_value: key is %s, key len is %d, value len is %d, value is %s", \
+                MID_LOG("read_log_value: key is \"%s\", key len is %d, value len is %d, value is \"%s\"", \
                         log->key_addr, log->mateData.key_length, log->mateData.value_length, log->value_addr);
+                
+                popQueue(value_peeding_queue);   /*  将logEntry从 peedinmg value 队列中移除 */
             }
-            else
-                break;
         }
     }
     return read_num;
@@ -673,7 +676,7 @@ void clean_log()
             ERROR_LOG("A to be deleted log is not in the dirty map! something wrong!");
             exit(0);
         }
-        INFO_LOG("clean_log: key is %s", log->key_addr);
+        MID_LOG("clean_log: key is \"%s\"", log->key_addr);
        
         free_log(log);      /* 只有执行完后才可以释放log*/
     }
@@ -727,10 +730,10 @@ bool rb_read (void *buf, int start, int len, bool isCopy)
         int left_size = buff_size - pos;
         if(buf)
         {
-            memcpy(buf, local_recv_buff->buff_addr, left_size);
+            memcpy(buf, local_recv_buff->buff_addr + pos, left_size);
             /* 因为我们使用最后1字节判断是否接收完成，所以在读取完后需要将buffer重新置为全0 */
             if(!isCopy)
-                memset(local_recv_buff->buff_addr, 0 , left_size);
+                memset(local_recv_buff->buff_addr + pos, 0 , left_size);
             buf += left_size;
         }
         len -= left_size;
@@ -781,44 +784,61 @@ bool rb_write (void *upper_api_buf, int len)
 void buff_init()
 {
     pthread_t writerForRemote, readerForLocal, nic_thead;
-    // 头节点
-    if(server_instance->server_id == 0)
+    if(server_instance->num_chain_clusters <= 1)
     {
-        // 初始化本地 buff
-
+        ERROR_LOG("num_chain_clusters is less than 2, exit!");
+        exit(0);
     }
-    // 初始化远端buff
-    remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
-    memset(remote_buff, 0, sizeof(RemoteRingbuff));
 
-    int next_node = find_next_node(server_instance->server_id);
+    value_peeding_queue = initQueue(sizeof(void*), QUEUE_SIZE);
+    executing_queue = initQueue(sizeof(void*), QUEUE_SIZE);
+    sending_queue = initQueue(sizeof(void*), QUEUE_SIZE);
+    dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
 
-    if( next_node == -1){
+    if(server_instance->server_id == server_instance->num_chain_clusters - 1){
         // 尾节点
-        DEBUG_LOG("Tail node is %d", server_instance->server_id);
-        DEBUG_UPPER_BUFFER = malloc(SINGLE_SIZE);
+        MID_LOG("node [%d] is Tail node", server_instance->server_id);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
         node_class = TAIL;
         pthread_create(&readerForLocal, NULL, reader_thread, NULL);
     }
-    else
+    else if(server_instance->server_id == 0)
     {
-        // 分配下游节点的buff
-        DEBUG_LOG("Next node id is %d", next_node);
+        // 初始化远端buff
+        int next_node = server_instance->server_id + 1;
+        MID_LOG("Next node id is %d", next_node);
+
+        remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
+        memset(remote_buff, 0, sizeof(RemoteRingbuff));
+
         dhmp_buff_malloc(next_node, &(remote_buff->buff_mate), &(remote_buff->buff));
         if(!remote_buff->buff_mate || !remote_buff->buff)
         {
             ERROR_LOG("Init buff fail!");
             exit(0);
         }
-        DEBUG_LOG("Sucess malloc buff from node %d", next_node);
+        MID_LOG("Sucess malloc buff from node %d", next_node);
+
         remote_buff->node_id = next_node;
         remote_buff->size = TOTAL_SIZE;
-        node_class = HEAD;
-        pthread_create(&writerForRemote, NULL, writer_thread, NULL);
-        pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+
+        if(server_instance->server_id == 0)
+        {
+            // 头节点
+            node_class = HEAD;
+            pthread_create(&writerForRemote, NULL, writer_thread, NULL);
+            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+        }
+        else
+        {
+            // 中间节点
+            node_class = NORMAL;
+            dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
+            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
+            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+        }
     }
-    // void * peer_buff_mate = dhmp_malloc(sizeof(Ringbuff), client_find_server_id());
+    MID_LOG("buff_init sucess!");
 }
 
 // void* reader_thread(void * args)
@@ -854,7 +874,7 @@ void buff_init()
 //             case MID_READ_VALUE:
 
 //                 rd_read(&log.data+log.mateData.key_length, log.mateData.value_length);
-//                 INFO_LOG("Reader read from remote KEY is \"%s\", value is \"%s\"", \
+//                 MID_LOG("Reader read from remote KEY is \"%s\", value is \"%s\"", \
 //                                 (char*)log.data, (char*)(log.data + log.mateData.key_length));
 //                 memset(log.data, 0, log.mateData.key_length + log.mateData.value_length);
 //                 // peeding_size = sizeof(logMateData);

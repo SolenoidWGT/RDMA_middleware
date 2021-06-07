@@ -28,6 +28,7 @@ struct dhmp_server{
 	struct list_head client_list;
 
 	int cur_connections;		// 当前客户端连接数量
+	int num_chain_clusters;		// 链式复制模式下集群的数量
 	/* midderware*/
 	// struct dhmp_area * recv_area;
 	// struct dhmp_area * send_area;

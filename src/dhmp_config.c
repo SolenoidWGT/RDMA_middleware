@@ -17,7 +17,7 @@
 #define DHMP_DHMP_CONFIG_STR "dhmp_config"
 #define DHMP_CLIENT_STR "client"
 #define DHMP_LOG_LEVEL_STR "log_level"
-#define DHMP_SERVER_STR "server_instance"
+#define DHMP_SERVER_STR "server"
 #define DHMP_NIC_NAME_STR "nic_name"
 #define DHMP_ADDR_STR "addr"
 #define DHMP_PORT_STR "port"

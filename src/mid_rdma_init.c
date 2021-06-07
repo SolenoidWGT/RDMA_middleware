@@ -179,6 +179,9 @@ struct dhmp_server * dhmp_server_init()
 	dhmp_config_init(&server_instance->config, false);
 	dhmp_context_init(&server_instance->ctx);
 	server_instance->server_id = server_instance->config.curnet_id;
+	server_instance->num_chain_clusters = server_instance->config.nets_cnt;
+	MID_LOG("Server's node id is [%d], num_chain_clusters is [%d]", \
+					server_instance->server_id, server_instance->num_chain_clusters);
 
 	/*init client transport list*/
 	server_instance->cur_connections=0;
