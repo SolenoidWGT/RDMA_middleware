@@ -42,7 +42,7 @@
 				<nvm_node>4</nvm_node>
 	</server>
 
-	<server id="3">
+	<!-- <server id="3">
         		<nic_name>ib0</nic_name>
                 <addr>10.10.10.3</addr>
                 <port>39330</port>
@@ -51,5 +51,5 @@
                 <knum>1</knum>
 				<dram_node>0</dram_node>
 				<nvm_node>4</nvm_node>
-	</server>
+	</server> -->
 </dhmp_config>
