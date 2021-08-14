@@ -3,5 +3,5 @@
 #include "dhmp_server.h"
 
 struct dhmp_server * dhmp_server_init();
-struct dhmp_client * dhmp_client_init(size_t size, int server_id);
+struct dhmp_client * dhmp_client_init(size_t size, int server_id, int node_class);
 #endif

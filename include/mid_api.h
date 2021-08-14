@@ -16,10 +16,9 @@ int next_log(void* now_log_addr, void** next_log_addr, void** value_addr, \
 /* 新接口 */
 int read_log_key(int limits);
 int read_log_value(int limits);
-void pop_log();
 void* top_log();
 int judge_key_dirty(void * key);
 void clean_log();
 void send_log();
-
+int get_node_class();       /* 返回值为枚举类型node_class，必须在initbuf_buffer之后调用 */
 #endif

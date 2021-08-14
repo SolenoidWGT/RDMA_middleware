@@ -53,7 +53,11 @@
 
 extern struct memkind * pmem_kind;
 
-
+enum node_class {
+	HEAD,
+    NORMAL,
+    TAIL
+};
 
 enum dhmp_msg_type{
 	DHMP_MSG_MALLOC_REQUEST,

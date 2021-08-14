@@ -45,10 +45,10 @@ unQueue* value_peeding_queue = NULL;
 unQueue* executing_queue = NULL;
 unQueue* sending_queue = NULL;
 unQueue* dirty_queue = NULL;
-int node_class;
+int node_class = -1;
 
 void * DEBUG_UPPER_BUFFER;
-
+pthread_mutex_t dirty_lock;
 
 void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
@@ -56,6 +56,16 @@ bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
 bool head_node_write_log(char * key, char * value);
 
+
+int get_node_class()
+{
+    if(node_class != -1)
+        return node_class;
+    else{
+        ERROR_LOG("get_node_class not ready!");
+        exit(0);
+    }
+}
 
 void update_wr_remote()
 {
@@ -297,7 +307,7 @@ bool head_node_write_log(char * key, char * value)
                             KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
     if(!check_remote_size(remote_buff, send_len + value_len)){
-        INFO_LOG("remote buffer is full, please retry!");
+        MID_LOG("remote buffer is full, please retry!");
         return false;
     }
 
@@ -567,6 +577,7 @@ int read_log_key(int limits)
             pos = (pos + LOG_NEXT_OFFSET(*log)) & (buff_size -1);
 
             /*  必须保证key是一个c语言风格的字符串 */
+            pthread_mutex_lock(&dirty_lock);
             if(!dirty_map->exists(dirty_map, log->key_addr))    
                 dirty_map->put(dirty_map, log->key_addr, (void*)1);
             else
@@ -575,6 +586,7 @@ int read_log_key(int limits)
                 count = (unsigned long int)dirty_map->get(dirty_map, log->key_addr);
                 dirty_map->put(dirty_map, log->key_addr, (void*)(++count));
             }
+            pthread_mutex_unlock(&dirty_lock);
 
             /* 加入到 dirty_queue 中 */
             putQueue(dirty_queue, &log);
@@ -658,6 +670,7 @@ void clean_log()
         key_addr = get_key_addr(log);
 
         /* 将执行完的key从脏表中移除 */
+        pthread_mutex_lock(&dirty_lock);
         if(dirty_map->exists(dirty_map, key_addr))
         {
             /* 
@@ -676,6 +689,8 @@ void clean_log()
             ERROR_LOG("A to be deleted log is not in the dirty map! something wrong!");
             exit(0);
         }
+        pthread_mutex_unlock(&dirty_lock);
+
         MID_LOG("clean_log: key is \"%s\"", log->key_addr);
        
         free_log(log);      /* 只有执行完后才可以释放log*/
@@ -710,7 +725,11 @@ void send_log()
 */
 int judge_key_dirty(void * key)
 {
-    return dirty_map->exists(dirty_map, key);
+    bool re;
+    pthread_mutex_lock(&dirty_lock);
+    re = dirty_map->exists(dirty_map, key);
+    pthread_mutex_unlock(&dirty_lock);
+    return re;
 }
 
 // rb_read在关键路径上
@@ -784,25 +803,21 @@ bool rb_write (void *upper_api_buf, int len)
 void buff_init()
 {
     pthread_t writerForRemote, readerForLocal, nic_thead;
-    if(server_instance->num_chain_clusters <= 1)
-    {
-        ERROR_LOG("num_chain_clusters is less than 2, exit!");
-        exit(0);
-    }
 
     value_peeding_queue = initQueue(sizeof(void*), QUEUE_SIZE);
     executing_queue = initQueue(sizeof(void*), QUEUE_SIZE);
     sending_queue = initQueue(sizeof(void*), QUEUE_SIZE);
     dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
 
-    if(server_instance->server_id == server_instance->num_chain_clusters - 1){
+    if(node_class == TAIL)
+    {
         // 尾节点
         MID_LOG("node [%d] is Tail node", server_instance->server_id);
+        pthread_mutex_init(&dirty_lock, NULL);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
-        node_class = TAIL;
         pthread_create(&readerForLocal, NULL, reader_thread, NULL);
     }
-    else if(server_instance->server_id == 0)
+    else
     {
         // 初始化远端buff
         int next_node = server_instance->server_id + 1;
@@ -822,20 +837,23 @@ void buff_init()
         remote_buff->node_id = next_node;
         remote_buff->size = TOTAL_SIZE;
 
-        if(server_instance->server_id == 0)
+        if(node_class == HEAD)
         {
             // 头节点
-            node_class = HEAD;
             pthread_create(&writerForRemote, NULL, writer_thread, NULL);
             pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         }
-        else
+        else if(node_class == NORMAL)
         {
             // 中间节点
-            node_class = NORMAL;
+            pthread_mutex_init(&dirty_lock, NULL);
             dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
             pthread_create(&readerForLocal, NULL, reader_thread, NULL);
             pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+        }
+        else{
+            ERROR_LOG("unkown node!");
+            exit(0);
         }
     }
     MID_LOG("buff_init sucess!");

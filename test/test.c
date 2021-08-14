@@ -44,20 +44,24 @@ int main(int argc,char *argv[])
 	}
 	MID_LOG("Node [%d] server_instance has finished init", mid_server->server_id);
 
-	dhmp_client_init(SIZE*2, mid_server->server_id);
+    if(server_instance->num_chain_clusters <= 1)
+    {
+        ERROR_LOG("num_chain_clusters is less than 2, exit!");
+        exit(0);
+    }
 
-	MID_LOG("server_instance [%d] has extablished connecting with node [%d]", mid_server->server_id, find_next_node(server_instance->server_id));
+    if(server_instance->server_id == server_instance->num_chain_clusters - 1)
+		node_class = TAIL; 		// 尾节点
+    else if(server_instance->server_id == 0)
+        node_class = HEAD;		// 头节点
+    else
+        node_class = NORMAL; 	// 中间节点
 
-	/* wait connect establish*/
-	for(i =0; i<WAIT_TIME; i++){
-		MID_LOG("Please wait connect establish, left time is %d s", WAIT_TIME-i);
-		sleep(1);
-	}
+	dhmp_client_init(SIZE*2, mid_server->server_id, node_class);
+
+	MID_LOG("server_instance [%d] has extablished connecting with node [%d]", \
+						mid_server->server_id, find_next_node(server_instance->server_id));
 	
-	// char * base = (char * )malloc(SIZE * sizeof(char));
-	// void* remote_addr = dhmp_malloc(SIZE, client_find_server_id());
-	// dhmp_send(remote_addr, base, SIZE, true);
-	// dhmp_send(remote_addr, base, SIZE, false);
 	buff_init();
 	pthread_join(server_instance->ctx.epoll_thread, NULL);
 	return 0;

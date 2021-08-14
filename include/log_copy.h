@@ -17,19 +17,14 @@
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
 
+
+extern int node_class;
+
 enum log_read_state {
 	READ_NO_LOG,
     READ_LOG_KEY,
     READ_LOG_VALUE
 };
-
-
-enum node_class {
-	HEAD,
-    NORMAL,
-    TAIL
-};
-
 
 
 typedef struct logMateData
@@ -41,12 +36,13 @@ typedef struct logMateData
 
 typedef struct logEntry
 {
-    logMateData mateData;
-    int              log_pos;       // 当前log在buffer中的下标，对读写者均有用
-    bool             key_is_cut;
-    bool             value_is_cut;
-    void*            key_addr;      // 
-    void*            value_addr;    // 
+    logMateData mateData;      // 元数据信息
+    int         log_pos;       // 当前log在buffer中的下标，对读写者均有用
+    bool        key_is_cut;    // key是否截断
+    bool        value_is_cut;  // value是否截断
+    bool        free_cas_flag; // 释放log时的cas标志位
+    void*       key_addr;      // key的连续起始地址
+    void*       value_addr;    // value的连续起始地址
 
     /* data */
 }logEntry;
