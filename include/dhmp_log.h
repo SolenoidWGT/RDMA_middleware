@@ -1,11 +1,21 @@
+/*
+ * @Author: your name
+ * @Date: 2021-04-25 17:46:17
+ * @LastEditTime: 2021-05-07 00:39:13
+ * @LastEditors: your name
+ * @Description: In User Settings Edit
+ * @FilePath: /RDMA_middleware/include/dhmp_log.h
+ */
 #ifndef DHMP_LOG_H
 #define DHMP_LOG_H
+
 enum dhmp_log_level{
 	DHMP_LOG_LEVEL_ERROR,
 	DHMP_LOG_LEVEL_WARN,
 	DHMP_LOG_LEVEL_INFO,
 	DHMP_LOG_LEVEL_DEBUG,
 	DHMP_LOG_LEVEL_TRACE,
+	DHMP_LOG_LEVEL_MID,
 	DHMP_LOG_LEVEL_LAST
 };
 
@@ -30,5 +40,7 @@ void dhmp_log_impl(const char *file, unsigned line, const char *func,
 #define DEBUG_LOG(fmt, ...)		dhmp_log(DHMP_LOG_LEVEL_DEBUG, fmt, \
 									## __VA_ARGS__)
 #define TRACE_LOG(fmt, ...)		dhmp_log(DHMP_LOG_LEVEL_TRACE, fmt,\
+									## __VA_ARGS__)
+#define MID_LOG(fmt, ...)		dhmp_log(DHMP_LOG_LEVEL_MID, fmt,\
 									## __VA_ARGS__)
 #endif

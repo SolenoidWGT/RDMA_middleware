@@ -220,10 +220,10 @@ static void dhmp_set_curnode_id ( struct dhmp_config* config_ptr )
 	}
 
 	if(res)
-		INFO_LOG("curnode server id is %d",config_ptr->curnet_id);
+		INFO_LOG("curnode server_instance id is %d",config_ptr->curnet_id);
 	else
 	{
-		ERROR_LOG("server addr in config.xml is error.");
+		ERROR_LOG("server_instance addr in config.xml is error.");
 		exit(-1);
 	}
 }

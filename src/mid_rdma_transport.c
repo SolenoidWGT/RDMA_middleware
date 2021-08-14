@@ -51,7 +51,7 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr)
 	
 	err=ibv_post_recv(rdma_trans->qp, &recv_wr, &bad_wr_ptr);
 	if(err)
-		ERROR_LOG("ibv post recv error.");
+		ERROR_LOG("ibv post recv error, the reason is %s", strerror(errno));
 	
 }
 
@@ -67,6 +67,7 @@ void dhmp_post_all_recv(struct dhmp_transport *rdma_trans)
 	else
 		single_region_size=SINGLE_NORM_RECV_REGION;
 	
+	DEBUG_LOG("post recv nums is %d", RECV_REGION_SIZE/single_region_size);
 	for(i=0; i<RECV_REGION_SIZE/single_region_size; i++)
 	{
 		dhmp_post_recv(rdma_trans, 
@@ -230,7 +231,8 @@ error:
 	return -1;
 }
 
-int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length)
+int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
+						off_t offset)
 {
 	struct dhmp_task* read_task;
 	struct ibv_send_wr send_wr,*bad_wr=NULL;
@@ -253,7 +255,8 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 	send_wr.sg_list=&sge;
 	send_wr.num_sge=1;
 	send_wr.send_flags=IBV_SEND_SIGNALED;
-	send_wr.wr.rdma.remote_addr=(uintptr_t)mr->addr;
+	//send_wr.wr.rdma.remote_addr=(uintptr_t)mr->addr;
+	send_wr.wr.rdma.remote_addr= ( uintptr_t )(( uintptr_t )mr->addr + offset);  // WGT
 	send_wr.wr.rdma.rkey=mr->rkey;
 
 	sge.addr=(uintptr_t)read_task->sge.addr;
@@ -267,7 +270,7 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 		goto error;
 	}
 
-	DEBUG_LOG("before local addr is %s", local_addr);
+	//DEBUG_LOG("before local addr is %s", local_addr);
 	
 	while(!read_task->done_flag);
 	
@@ -275,47 +278,58 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 	ibv_dereg_mr(smr->mr);
 	free(smr);
 		
-	DEBUG_LOG("local addr content is %s", local_addr);
+	//DEBUG_LOG("local addr content is %s", local_addr);
 
 	return 0;
 error:
 	return -1;
 }
 
-int dhmp_rdma_write(struct dhmp_transport* rdma_trans, struct dhmp_addr_info* addr_info,
-	struct ibv_mr* mr, void* local_addr, int length)
+// WGT
+int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, 
+								struct ibv_mr* mr, void* local_addr, int length,
+								off_t offset)
 {
-	struct dhmp_task* write_task;
-	struct ibv_send_wr send_wr, * bad_wr = NULL;
-	struct ibv_sge sge;
-	struct dhmp_send_mr* smr = NULL;
-	int err = 0;
+	struct timespec start_time, end_time;
 
-	// 由dhmp_get_mr_from_send_list函数解决内存区域复用的问题
-	smr = dhmp_get_mr_from_send_list(rdma_trans, local_addr, length);
-	write_task = dhmp_write_task_create(rdma_trans, smr, length);
-	if (!write_task)
+	struct dhmp_task* write_task;
+	struct ibv_send_wr send_wr,*bad_wr=NULL;
+	struct ibv_sge sge;
+	struct dhmp_send_mr* smr=NULL;
+	int err=0;
+	
+	//clock_gettime(CLOCK_MONOTONIC, &start_time);
+	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, length);
+	// clock_gettime(CLOCK_MONOTONIC, &end_time);
+	// get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) -
+    //                     ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
+						
+	write_task=dhmp_write_task_create(rdma_trans, smr, length);
+	if(!write_task)
 	{
 		ERROR_LOG("allocate memory error.");
 		return -1;
 	}
-	write_task->addr_info = addr_info;
-
+	write_task->addr_info=addr_info;
+	
 	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 
-	send_wr.wr_id = (uintptr_t)write_task;
-	send_wr.opcode = IBV_WR_RDMA_WRITE;
-	send_wr.sg_list = &sge;
-	send_wr.num_sge = 1;
-	send_wr.send_flags = IBV_SEND_SIGNALED;
-	send_wr.wr.rdma.remote_addr = (uintptr_t)mr->addr;
-	send_wr.wr.rdma.rkey = mr->rkey;
+	send_wr.wr_id= ( uintptr_t ) write_task;
+	send_wr.opcode=IBV_WR_RDMA_WRITE;
+	send_wr.sg_list=&sge;
+	send_wr.num_sge=1;
+	send_wr.send_flags=IBV_SEND_SIGNALED;
+	// send_wr.wr.rdma.remote_addr= ( uintptr_t ) mr->addr; 
+	send_wr.wr.rdma.remote_addr= ( uintptr_t )(( uintptr_t )mr->addr + offset);  // WGT
+	send_wr.wr.rdma.rkey=mr->rkey;
 
-	sge.addr = (uintptr_t)write_task->sge.addr;
-	sge.length = write_task->sge.length;
-	sge.lkey = write_task->sge.lkey;
-	err = ibv_post_send(rdma_trans->qp, &send_wr, &bad_wr);
-	if (err)
+	sge.addr= ( uintptr_t ) write_task->sge.addr;
+	sge.length=write_task->sge.length;
+	sge.lkey=write_task->sge.lkey;
+
+
+	err=ibv_post_send ( rdma_trans->qp, &send_wr, &bad_wr );
+	if ( err )
 	{
 		ERROR_LOG("ibv_post_send error");
 		exit(-1);
@@ -323,10 +337,11 @@ int dhmp_rdma_write(struct dhmp_transport* rdma_trans, struct dhmp_addr_info* ad
 	}
 
 	while (!write_task->done_flag);
+	// DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
+
 	ibv_dereg_mr(smr->mr);
 	free(smr);
 	return 0;
-
 error:
 	return -1;
 }
@@ -359,92 +374,3 @@ const char* dhmp_wc_opcode_str(enum ibv_wc_opcode opcode)
 	};
 }
 
-/**
- *	the success work completion handler function
- */
-static void dhmp_wc_success_handler(struct ibv_wc* wc)
-{
-	struct dhmp_task *task_ptr;
-	struct dhmp_transport *rdma_trans;
-	struct dhmp_msg msg;
-	
-	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
-	rdma_trans=task_ptr->rdma_trans;
-
-	/*read the msg content from the task_ptr sge addr*/
-	msg.msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
-	msg.data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
-	msg.data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
-	
-	switch(wc->opcode)
-	{
-		case IBV_WC_SEND:
-			break;
-		case IBV_WC_RECV:
-			dhmp_wc_recv_handler(rdma_trans, &msg);
-			dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
-			break;
-		case IBV_WC_RDMA_WRITE:
-			task_ptr->addr_info->write_flag=false;
-			task_ptr->done_flag=true;
-			break;
-		case IBV_WC_RDMA_READ:
-			task_ptr->done_flag=true;
-			break;
-		default:
-			ERROR_LOG("unknown opcode:%s",
-			            dhmp_wc_opcode_str(wc->opcode));
-			break;
-	}
-}
-
-/**
- *	dhmp_wc_error_handler:handle the error work completion.
- */
-static void dhmp_wc_error_handler(struct ibv_wc* wc)
-{
-	if(wc->status==IBV_WC_WR_FLUSH_ERR)
-	{
-		// INFO_LOG("work request flush");
-	}
-	else
-		ERROR_LOG("wc status is [%s]",
-		            ibv_wc_status_str(wc->status));
-}
-
-/**
- *	dhmp_comp_channel_handler:create a completion channel handler
- *  note:set the following function to the cq handle work completion
- *  epoll回调函数入口
- */
-void dhmp_comp_channel_handler(int fd, void* data)
-{
-	struct dhmp_cq* dcq =(struct dhmp_cq*) data;
-	struct ibv_cq* cq;
-	void* cq_ctx;
-	struct ibv_wc wc;
-	int err=0;
-
-	err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
-	if(err)
-	{
-		ERROR_LOG("ibv get cq event error.");
-		return ;
-	}
-
-	ibv_ack_cq_events(dcq->cq, 1);
-	err=ibv_req_notify_cq(dcq->cq, 0);
-	if(err)
-	{
-		ERROR_LOG("ibv req notify cq error.");
-		return ;
-	}
-
-	while(ibv_poll_cq(dcq->cq, 1, &wc))
-	{
-		if(wc.status==IBV_WC_SUCCESS)
-			dhmp_wc_success_handler(&wc);
-		else
-			dhmp_wc_error_handler(&wc);
-	}
-}

@@ -90,8 +90,7 @@ int dhmp_context_add_event_fd(struct dhmp_context *ctx,
 		free(event_data_ptr);
 	}
 	else
-		INFO_LOG("dhmp_context add event fd success.");
-	
+		INFO_LOG("dhmp_context add event fd success");
 	return retval;
 }
 

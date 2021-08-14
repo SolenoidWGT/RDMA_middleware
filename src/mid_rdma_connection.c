@@ -8,6 +8,8 @@
 #include "../include/dhmp_transport.h"
 #include "../include/dhmp_server.h"
 #include "../include/dhmp_log.h"
+#include "dhmp_client.h"
+
 void dhmp_event_channel_handler(int fd, void* data);
 
 
@@ -312,8 +314,8 @@ struct dhmp_transport* dhmp_is_exist_connection(struct sockaddr_in *sock)
 	inet_ntop(AF_INET, &(sock->sin_addr), cur_ip, sizeof(cur_ip));
 	cur_ip_len=strlen(cur_ip);
 	
-	pthread_mutex_lock(&server->mutex_client_list);
-	list_for_each_entry(rdma_trans, &server->client_list, client_entry)
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
 	{
 		inet_ntop(AF_INET, &(rdma_trans->peer_addr.sin_addr), travers_ip, sizeof(travers_ip));
 		travers_ip_len=strlen(travers_ip);
@@ -325,7 +327,7 @@ struct dhmp_transport* dhmp_is_exist_connection(struct sockaddr_in *sock)
 			break;
 		}
 	}
-	pthread_mutex_unlock(&server->mutex_client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
 
 	return res_trans;
 }
@@ -337,18 +339,18 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 {
 	struct dhmp_transport *rdma_trans;
 	int err=0;
-	
 	rdma_trans=(struct dhmp_transport*)malloc(sizeof(struct dhmp_transport));
 	if(!rdma_trans)
 	{
 		ERROR_LOG("allocate memory error");
 		return NULL;
 	}
-
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_INIT;
 	rdma_trans->ctx=ctx;
 	rdma_trans->device=dev;
 	rdma_trans->dram_used_size=rdma_trans->nvm_used_size=0;
+	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
+	rdma_trans->is_server = true;
 	
 	err=dhmp_event_channel_create(rdma_trans);
 	if(err)
@@ -450,7 +452,7 @@ static int on_cm_route_resolved(struct rdma_cm_event* event, struct dhmp_transpo
 		ERROR_LOG("rdma connect error.");
 		goto cleanqp;
 	}
-
+	INFO_LOG("on_cm_route_resolved sucess!");
 	dhmp_post_all_recv(rdma_trans);
 	return retval;
 
@@ -496,10 +498,10 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	}
 
 	// 新增当前server的客户端连接数目
-	++server->cur_connections;
-	pthread_mutex_lock(&server->mutex_client_list);
-	list_add_tail(&new_trans->client_entry, &server->client_list);
-	pthread_mutex_unlock(&server->mutex_client_list);
+	++server_instance->cur_connections;
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
 	
 	if(normal_trans)
 	{
@@ -542,34 +544,38 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 			sizeof(rdma_trans->peer_addr));
 	
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTED;
+	INFO_LOG("on_cm_established sucess!");
 	return retval;
 }
 
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	dhmp_destroy_source(rdma_trans);
-	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_DISCONNECTED;
-	if(server!=NULL)
+	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
+	// 新增判断逻辑，分离server 和 client 的trans连接断开
+	if(server_instance!=NULL && rdma_trans->is_server)
 	{
-		--server->cur_connections;
-		pthread_mutex_lock(&server->mutex_client_list);
+		--server_instance->cur_connections;
+		pthread_mutex_lock(&server_instance->mutex_client_list);
 		list_del(&rdma_trans->client_entry);
-		pthread_mutex_unlock(&server->mutex_client_list);
+		pthread_mutex_unlock(&server_instance->mutex_client_list);
 	}
-	
 	return 0;
 }
+
+
+
 
 static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_ERROR;
-	if(server!=NULL)
+	if(server_instance!=NULL)
 	{
-		--server->cur_connections;
-		pthread_mutex_lock(&server->mutex_client_list);
+		--server_instance->cur_connections;
+		pthread_mutex_lock(&server_instance->mutex_client_list);
 		list_del(&rdma_trans->client_entry);
-		pthread_mutex_unlock(&server->mutex_client_list);
+		pthread_mutex_unlock(&server_instance->mutex_client_list);
 	}
 	return 0;
 }
@@ -577,11 +583,26 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 // WGT
 static int on_cm_rejected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
+	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server_instance [%d]-th", rdma_trans->node_id);
+	/*
+		注意，不能在这里面销毁trans，因为on_cm_rejected是在：dhmp_event_channel_handler 的 rdma_get_cm_event 循环中
+		如果在这里销毁就会产生未定义的行为，产生错误。
+	*/
+	// free_trans(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_REJECT;
 	return 0;
 }
 
 // WGT
+/*
+	https://linux-rdma.vger.kernel.narkive.com/zqiCL27t/rdma-cm-event-rejected-and-ressources-release
+
+	If the connection is not successful, call the corresponding destroy
+	calls in the the reverse order.
+
+	If the connection is successful, register memory and post the receive
+	calls.
+*/
 int free_trans(struct dhmp_transport* rdma_trans)
 {
 	/*
@@ -590,23 +611,34 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	*/
 	int node_id = rdma_trans->node_id;
 
-	// undo on_cm_route_resolved
-	dhmp_qp_release(rdma_trans);
-
-	// undo dhmp_transport_connect
-	rdma_destroy_id(rdma_trans->cm_id);
-
 	// undo dhmp_transport_create
 	// undo dhmp_memory_register
 	ibv_dereg_mr(rdma_trans->send_mr.mr);
 	ibv_dereg_mr(rdma_trans->recv_mr.mr);
+	if(rdma_trans->send_mr.addr)
+		free(rdma_trans->send_mr.addr);
+
+	// undo on_cm_route_resolved
+	dhmp_qp_release(rdma_trans);
+
+	// undo dhmp_transport_connect
+	// 必须先释放qp，再调用这个函数
+	rdma_destroy_id(rdma_trans->cm_id);
+
 	// rdma_trans->
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
+
 	// undo dhmp_event_channel_create
-	rdma_destroy_event_channel(rdma_trans->event_channel);
-	free(rdma_trans->send_mr.addr);
+	// 必须先销毁与事件通道关联的所有 rdma_cm_id，并且所有返回的事件必须在调用此函数之前被确认。
+	if(rdma_trans->event_channel)
+		rdma_destroy_event_channel(rdma_trans->event_channel);
+
 	// undo malloc
-	free(rdma_trans);
+	// free(rdma_trans);
+	// rdma_trans = NULL;
+	
+	INFO_LOG("Free rdma_trans with server_instance [%d]-th", node_id);
+	INFO_LOG("rdma_trans state is %d",  rdma_trans->trans_state);
 	return 0;
 }
 
@@ -652,7 +684,6 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 			retval=-1;
 			break;
 	};
-
 	return retval;
 }
 
