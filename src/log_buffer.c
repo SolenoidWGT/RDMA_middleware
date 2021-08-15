@@ -40,6 +40,9 @@
 LocalRingbuff *local_recv_buff;
 LocalMateRingbuff * local_recv_buff_mate;
 RemoteRingbuff * remote_buff;
+
+RemoteRingbuff ** remote_buffs_list;  /* only for head node */
+
 HashMap * dirty_map;
 unQueue* value_peeding_queue = NULL;
 unQueue* executing_queue = NULL;
@@ -809,24 +812,29 @@ void buff_init()
     sending_queue = initQueue(sizeof(void*), QUEUE_SIZE);
     dirty_queue = initQueue(sizeof(void*), QUEUE_SIZE);
 
-    if(node_class == TAIL)
+    if (node_class == TAIL)
     {
         // 尾节点
-        MID_LOG("node [%d] is Tail node", server_instance->server_id);
+        MID_LOG("Node [%d] is Tail node", server_instance->server_id);
         pthread_mutex_init(&dirty_lock, NULL);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
         pthread_create(&readerForLocal, NULL, reader_thread, NULL);
     }
-    else
+    else if(node_class == NORMAL)
     {
-        // 初始化远端buff
+        // 初始化下游buff
         int next_node = server_instance->server_id + 1;
         MID_LOG("Next node id is %d", next_node);
 
         remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
         memset(remote_buff, 0, sizeof(RemoteRingbuff));
 
+        /*
+         * buff_mate 是远端 buffer mate 的地址
+         * buff 是远端 buffer 的起始地址
+         */
         dhmp_buff_malloc(next_node, &(remote_buff->buff_mate), &(remote_buff->buff));
+
         if(!remote_buff->buff_mate || !remote_buff->buff)
         {
             ERROR_LOG("Init buff fail!");
@@ -837,25 +845,56 @@ void buff_init()
         remote_buff->node_id = next_node;
         remote_buff->size = TOTAL_SIZE;
 
-        if(node_class == HEAD)
-        {
-            // 头节点
-            pthread_create(&writerForRemote, NULL, writer_thread, NULL);
-            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
-        }
-        else if(node_class == NORMAL)
-        {
-            // 中间节点
-            pthread_mutex_init(&dirty_lock, NULL);
-            dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
-        }
-        else{
-            ERROR_LOG("unkown node!");
-            exit(0);
-        }
+        // 中间节点
+        pthread_mutex_init(&dirty_lock, NULL);
+        dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
+
+        pthread_create(&readerForLocal, NULL, reader_thread, NULL);
+        pthread_create(&writerForRemote, NULL, writer_thread, NULL);
+        pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+
     }
+    else if (node_class == HEAD)
+    {
+        // 获得所有从节点的 buffer 元数据信息
+        int node_nums = server_instance->num_chain_clusters;
+        int node_id = server_instance->server_id + 1;  // should be 0 + 1
+        int i = 0;
+        size_t remote_buffs_list_size = sizeof(void*) * node_nums;
+
+        remote_buffs_list = (RemoteRingbuff**) malloc(remote_buffs_list_size);
+        for(i=1; i<node_nums ;i++)
+        {
+            remote_buffs_list[i] = (RemoteRingbuff*)malloc(sizeof(RemoteRingbuff));
+            memset(remote_buffs_list[i], 0, sizeof(RemoteRingbuff));
+        }
+
+        for (; node_id < node_nums; node_id++)
+        {
+            RemoteRingbuff* rbuff = remote_buffs_list[node_id];
+            dhmp_buff_malloc(node_id, &(rbuff->buff_mate), &(rbuff->buff));
+            if(!rbuff->buff_mate || !rbuff->buff)
+            {
+                ERROR_LOG("Init buff fail!");
+                exit(0);
+            }
+            rbuff->node_id = node_id;
+            rbuff->size = TOTAL_SIZE;
+            MID_LOG("Head Node sucess malloc buff from node %d", node_id);
+        }
+
+        remote_buff = remote_buffs_list[server_instance->server_id + 1];
+
+        // 头节点
+        pthread_create(&writerForRemote, NULL, writer_thread, NULL);
+        pthread_create(&nic_thead, NULL, NIC_thread, NULL);
+    }
+    else
+    {
+        ERROR_LOG("UNkown class type!");
+        exit(0);
+    }
+
     MID_LOG("buff_init sucess!");
 }
 

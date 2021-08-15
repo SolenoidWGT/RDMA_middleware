@@ -217,7 +217,7 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 	
 	buff_malloc_work->buff_addr      = buff_addr;
 	buff_malloc_work->buff_mate_addr = buff_mate_addr;
-	buff_malloc_work->done_flag=true;
+	buff_malloc_work->done_flag		 = true;
 }
 
 
@@ -460,6 +460,7 @@ void *dhmp_work_handle_thread(void *data)
 				case DHMP_WORK_CLOSE:
 					dhmp_close_work_handler(work);
 					break;
+				// middleware 
 				case DHMP_BUFF_MALLOC:
 					dhmp_buff_malloc_work_handler(work);
 					break;

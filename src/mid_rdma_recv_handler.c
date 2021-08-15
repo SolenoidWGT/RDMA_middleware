@@ -159,7 +159,6 @@ req_error:
 	dhmp_post_send ( rdma_trans, &res_msg );
 
 	return ;
-
 }
 
 static void dhmp_malloc_buff_response_handler(struct dhmp_transport* rdma_trans,
