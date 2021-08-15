@@ -382,8 +382,8 @@ void * NIC_thread(void * args)
             MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
             count++;
         }
-        // if(count == REPEAT)
-        //     break;
+        if(count == REPEAT)
+            break;
     }
     MID_LOG("NIC_thread write all logs and exit!");
     pthread_exit(0);
@@ -424,7 +424,7 @@ int rb_write_mate (RemoteRingbuff *rb, void *upper_api_buf, int mateLen, int dat
         pos = 0;
     }
     // update_wr_local(pos+dataLen);
-    rb->wr_pointer = pos + mateLen;
+    rb->wr_pointer = pos + dataLen;
     // update_wr_remote();
     dhmp_write(rb->buff_mate, &(rb->wr_pointer), sizeof(int), 0, true);
     return log_pos;
@@ -827,7 +827,7 @@ void buff_init()
         MID_LOG("node [%d] is Tail node", server_instance->server_id);
         pthread_mutex_init(&dirty_lock, NULL);
         dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
-        pthread_create(&readerForLocal, NULL, reader_thread, NULL);
+        // pthread_create(&readerForLocal, NULL, reader_thread, NULL);
     }
     else
     {
@@ -856,7 +856,7 @@ void buff_init()
             }
             remote_buff = slaves_buff[server_instance->server_id + 1];
 
-            pthread_create(&writerForRemote, NULL, writer_thread, NULL);
+            // pthread_create(&writerForRemote, NULL, writer_thread, NULL);
             pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         }
         else if(node_class == NORMAL)
@@ -882,7 +882,7 @@ void buff_init()
             // 中间节点
             pthread_mutex_init(&dirty_lock, NULL);
             dirty_map =  createHashMap(defaultHashCode, NULL, 1024);
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
+            // pthread_create(&readerForLocal, NULL, reader_thread, NULL);
             pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         }
         else{
