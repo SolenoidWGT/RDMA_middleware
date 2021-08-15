@@ -9,7 +9,7 @@
 #ifndef LOG_COPY_H
 #define LOG_COPY_H
 
-#define TOTAL_SIZE 64
+#define TOTAL_SIZE 64 * 1024 * 1024
 
 #include "dhmp_transport.h"
 #include "mid_api.h"
@@ -111,6 +111,9 @@ typedef struct ring_buff_local
 extern LocalRingbuff *local_recv_buff;
 extern LocalMateRingbuff * local_recv_buff_mate;
 extern RemoteRingbuff * remote_buff;
+
+// tmm
+extern RemoteRingbuff * slaves_buff[DHMP_SERVER_NODE_NUM];
 
 
 #define POS(addr) ((void*) addr - loacl_recv_buff->buff_addr)

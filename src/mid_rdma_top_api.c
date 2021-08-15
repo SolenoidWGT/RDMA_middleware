@@ -10,14 +10,14 @@
 #include "dhmp_log.h"
 #include "mid_rdma_utils.h"
 
-extern struct dhmp_client *client;
+extern struct dhmp_client *midd_client;
 
 
 struct dhmp_transport* dhmp_get_trans_from_addr(void *dhmp_addr)
 {
 	long long node_index=(long long)dhmp_addr;
 	node_index=node_index>>48;
-	return client->connect_trans[node_index];
+	return midd_client->connect_trans[node_index];
 }
 
 int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write)
@@ -49,9 +49,9 @@ int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write)
 			
 	work->work_type=DHMP_WORK_SEND;
 	work->work_data=&send_work;
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&midd_client->mutex_work_list);
+	list_add_tail(&work->work_entry, &midd_client->work_list);
+	pthread_mutex_unlock(&midd_client->mutex_work_list);
 	while(!send_work.done_flag);
 	free(work);
 	return 0;
@@ -103,9 +103,9 @@ void *dhmp_malloc(size_t length, int nodeid)
 	work->work_type=DHMP_WORK_MALLOC;
 	work->work_data=&malloc_work;
 
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&midd_client->mutex_work_list);
+	list_add_tail(&work->work_entry, &midd_client->work_list);
+	pthread_mutex_unlock(&midd_client->mutex_work_list);
 	
 	while(!malloc_work.done_flag);
 
@@ -175,9 +175,9 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 	work->work_type = DHMP_BUFF_MALLOC;
 	work->work_data = &buff_malloc_work;
 
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&midd_client->mutex_work_list);
+	list_add_tail(&work->work_entry, &midd_client->work_list);
+	pthread_mutex_unlock(&midd_client->mutex_work_list);
 	
 	while(!buff_malloc_work.done_flag);
 
@@ -228,9 +228,9 @@ int dhmp_read(void *dhmp_addr, void * local_buf, size_t count,
 	work->work_type=DHMP_WORK_READ;
 	work->work_data=&rwork;
 	
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&midd_client->mutex_work_list);
+	list_add_tail(&work->work_entry, &midd_client->work_list);
+	pthread_mutex_unlock(&midd_client->mutex_work_list);
 
 	while(!rwork.done_flag);
 
@@ -271,9 +271,9 @@ int dhmp_write(void *dhmp_addr, void * local_buf, size_t count,
 	work->work_type=DHMP_WORK_WRITE;
 	work->work_data=&wwork;
 	
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&midd_client->mutex_work_list);
+	list_add_tail(&work->work_entry, &midd_client->work_list);
+	pthread_mutex_unlock(&midd_client->mutex_work_list);
 	
 	while(!wwork.done_flag);
 

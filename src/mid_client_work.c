@@ -55,7 +55,7 @@ void *dhmp_transfer_dhmp_addr(struct dhmp_transport *rdma_trans, void *normal_ad
 	
 	for(index=0; index<DHMP_SERVER_NODE_NUM; index++)
 	{
-		if(rdma_trans==client->connect_trans[index])
+		if(rdma_trans==midd_client->connect_trans[index])
 			break;
 	}
 	
@@ -99,7 +99,7 @@ static void dhmp_addr_info_insert_ht(void *dhmp_addr,
 	addr_info->dram_mr.addr=NULL;
 	index=dhmp_hash_in_client(dhmp_addr);
 	// DEBUG_LOG("insert ht %d %p",index,addr_info->nvm_mr.addr);
-	hlist_add_head(&addr_info->addr_entry, &client->addr_info_ht[index]);
+	hlist_add_head(&addr_info->addr_entry, &midd_client->addr_info_ht[index]);
 }
 
 int dhmp_get_node_index_from_addr(void *dhmp_addr)
@@ -168,7 +168,7 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 	buff_malloc_work = (struct dhmp_buff_malloc_work*)work->work_data;
 	
 	/*build malloc request msg*/
-	req_msg.node_id = client->node_id;
+	req_msg.node_id = midd_client->node_id;
 	req_msg.buff_addr_info 		= buff_malloc_work->buff_addr_info;
 	req_msg.buff_mate_addr_info	= buff_malloc_work->buff_mate_addr_info;
 	req_msg.work = buff_malloc_work;
@@ -246,12 +246,12 @@ struct dhmp_addr_info *dhmp_get_addr_info_from_ht(int index, void *dhmp_addr)
 	struct dhmp_addr_info *addr_info;
 	void *normal_addr;
 	
-	if(hlist_empty(&client->addr_info_ht[index]))
+	if(hlist_empty(&midd_client->addr_info_ht[index]))
 		goto out;
 	else
 	{
 		normal_addr=dhmp_transfer_normal_addr(dhmp_addr);
-		hlist_for_each_entry(addr_info, &client->addr_info_ht[index], addr_entry)
+		hlist_for_each_entry(addr_info, &midd_client->addr_info_ht[index], addr_entry)
 		{
 			if(addr_info->nvm_mr.addr==normal_addr)
 				break;
@@ -421,17 +421,17 @@ void *dhmp_work_handle_thread(void *data)
 {
 	struct dhmp_work *work;
 
-	while(client && !client->ctx.stop)
+	while(midd_client && !midd_client->ctx.stop)
 	{
 		work=NULL;
 		
-		pthread_mutex_lock(&client->mutex_work_list);
-		if(!list_empty(&client->work_list))
+		pthread_mutex_lock(&midd_client->mutex_work_list);
+		if(!list_empty(&midd_client->work_list))
 		{
-			work=list_first_entry(&client->work_list, struct dhmp_work, work_entry);
+			work=list_first_entry(&midd_client->work_list, struct dhmp_work, work_entry);
 			list_del(&work->work_entry);
 		}
-		pthread_mutex_unlock(&client->mutex_work_list);
+		pthread_mutex_unlock(&midd_client->mutex_work_list);
 
 		if(work)
 		{

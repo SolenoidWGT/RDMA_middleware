@@ -37,7 +37,7 @@ struct dhmp_client{
 	struct dhmp_send_mr* read_mr[DHMP_SERVER_NODE_NUM];
 };
 
-extern struct dhmp_client *client;
+extern struct dhmp_client *midd_client;
 #endif
 
 

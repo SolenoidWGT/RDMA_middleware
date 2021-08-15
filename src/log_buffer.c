@@ -47,11 +47,14 @@ unQueue* sending_queue = NULL;
 unQueue* dirty_queue = NULL;
 int node_class = -1;
 
+
+RemoteRingbuff * slaves_buff[DHMP_SERVER_NODE_NUM];
+
 void * DEBUG_UPPER_BUFFER;
 pthread_mutex_t dirty_lock;
 
 void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
-int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen);
+int rb_write_mate (RemoteRingbuff* rb, void *upper_api_buf, int mateLen, int dataLen);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
 bool head_node_write_log(char * key, char * value);
@@ -306,18 +309,22 @@ bool head_node_write_log(char * key, char * value)
     MID_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
                             KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
-    if(!check_remote_size(remote_buff, send_len + value_len)){
-        MID_LOG("remote buffer is full, please retry!");
-        return false;
+    int i;
+    for(i = server_instance->server_id + 1; i < server_instance->num_chain_clusters; ++i) {
+        if(!check_remote_size(slaves_buff[i], send_len + value_len)){
+            MID_LOG("slave[%d] buffer is full, please retry!", i);
+            return false;
+        }
+
+        log->log_pos = rb_write_mate(slaves_buff[i], log, send_len, value_len);
+
+        if(unlikely(log->log_pos == -1)){
+            ERROR_LOG("slave[%d] rb_write_mate fail!", i);
+            return false;
+        }
     }
 
-    log->log_pos = rb_write_mate(log, send_len, value_len);
-
-    if(unlikely(log->log_pos == -1)){
-        ERROR_LOG("rb_write_mate fail!");
-        return false;
-    }
-    else if(unlikely(!putQueue(sending_queue, &log))){
+    if(unlikely(!putQueue(sending_queue, &log))){
         ERROR_LOG("valueQueue full!");
         return false;
     }
@@ -375,46 +382,51 @@ void * NIC_thread(void * args)
             MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
             count++;
         }
-        if(count == REPEAT)
-            break;
+        // if(count == REPEAT)
+        //     break;
     }
     MID_LOG("NIC_thread write all logs and exit!");
     pthread_exit(0);
 }
 
 // 写元数据，并提前移动远端写指针，预留出data的位置
-int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen)
+int rb_write_mate (RemoteRingbuff *rb, void *upper_api_buf, int mateLen, int dataLen)
 {
     int totalLen = mateLen + dataLen;
-    int log_pos =  LOCAL_WR_PTR;
-    if(!check_remote_size(remote_buff, totalLen))
+    // int log_pos =  LOCAL_WR_PTR;
+    int log_pos = rb->wr_pointer;
+    if(!check_remote_size(rb, totalLen))
         return -1;
 
     // 先写 mate 数据
-    int pos = LOCAL_WR_PTR;
-    if(pos + mateLen > remote_buff->size)
+    // int pos = LOCAL_WR_PTR;
+    int pos = rb->wr_pointer;
+    if(pos + mateLen > rb->size)
     {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        int left_size = rb->size - pos;
+        dhmp_write(rb->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         mateLen -= left_size;
         pos = 0;
     }
-    dhmp_write(remote_buff->buff, upper_api_buf, mateLen, pos, false);
-    update_wr_local(pos+mateLen);
+    dhmp_write(rb->buff, upper_api_buf, mateLen, pos, false);
+    // update_wr_local(pos+mateLen);
+    rb->wr_pointer = pos + mateLen;
     
 
     // 再移动远端写偏移量
     // pos = (LOCAL_WR_PTR + dataLen) % (remote_buff->size);
-    pos = LOCAL_WR_PTR;
-    if(pos + dataLen > remote_buff->size)
+    pos = rb->wr_pointer;
+    if(pos + dataLen > rb->size)
     {
-        int left_size = remote_buff->size - pos;
+        int left_size = rb->size - pos;
         dataLen -= left_size;
         pos = 0;
     }
-    update_wr_local(pos+dataLen);
-    update_wr_remote();
+    // update_wr_local(pos+dataLen);
+    rb->wr_pointer = pos + mateLen;
+    // update_wr_remote();
+    dhmp_write(rb->buff_mate, &(rb->wr_pointer), sizeof(int), 0, true);
     return log_pos;
 }
 
@@ -819,32 +831,54 @@ void buff_init()
     }
     else
     {
-        // 初始化远端buff
-        int next_node = server_instance->server_id + 1;
-        MID_LOG("Next node id is %d", next_node);
-
-        remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
-        memset(remote_buff, 0, sizeof(RemoteRingbuff));
-
-        dhmp_buff_malloc(next_node, &(remote_buff->buff_mate), &(remote_buff->buff));
-        if(!remote_buff->buff_mate || !remote_buff->buff)
-        {
-            ERROR_LOG("Init buff fail!");
-            exit(0);
-        }
-        MID_LOG("Sucess malloc buff from node %d", next_node);
-
-        remote_buff->node_id = next_node;
-        remote_buff->size = TOTAL_SIZE;
 
         if(node_class == HEAD)
         {
             // 头节点
+            int i;
+            for(i = 0; i < DHMP_SERVER_NODE_NUM; ++i) {
+                slaves_buff[i] = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
+                memset(slaves_buff[i], 0, sizeof(RemoteRingbuff));
+            }
+
+            for(i = server_instance->server_id + 1; i < server_instance->num_chain_clusters; ++i) {
+                MID_LOG("Slave node id is %d", i);
+                dhmp_buff_malloc(i, &(slaves_buff[i]->buff_mate), &(slaves_buff[i]->buff));
+                if(!slaves_buff[i]->buff_mate || !slaves_buff[i]->buff)
+                {
+                    ERROR_LOG("Init buff fail!");
+                    exit(0);
+                }
+                MID_LOG("Sucess malloc buff from slave node %d", i);
+
+                slaves_buff[i]->node_id = i;
+                slaves_buff[i]->size = TOTAL_SIZE;
+            }
+            remote_buff = slaves_buff[server_instance->server_id + 1];
+
             pthread_create(&writerForRemote, NULL, writer_thread, NULL);
             pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         }
         else if(node_class == NORMAL)
         {
+            // 初始化远端buff
+            int next_node = server_instance->server_id + 1;
+            MID_LOG("Next node id is %d", next_node);
+
+            remote_buff = (RemoteRingbuff*) malloc(sizeof(RemoteRingbuff));
+            memset(remote_buff, 0, sizeof(RemoteRingbuff));
+
+            dhmp_buff_malloc(next_node, &(remote_buff->buff_mate), &(remote_buff->buff));
+            if(!remote_buff->buff_mate || !remote_buff->buff)
+            {
+                ERROR_LOG("Init buff fail!");
+                exit(0);
+            }
+            MID_LOG("Sucess malloc buff from node %d", next_node);
+
+            remote_buff->node_id = next_node;
+            remote_buff->size = TOTAL_SIZE;
+
             // 中间节点
             pthread_mutex_init(&dirty_lock, NULL);
             dirty_map =  createHashMap(defaultHashCode, NULL, 1024);

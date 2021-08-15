@@ -183,7 +183,7 @@ int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_
 	struct dhmp_task *read_task;
 	struct ibv_send_wr send_wr2, *bad_wr2 = NULL;
 	struct ibv_sge sge2;
-	read_task = dhmp_read_task_create(rdma_trans, client->read_mr[rdma_trans->node_id], 1);
+	read_task = dhmp_read_task_create(rdma_trans, midd_client->read_mr[rdma_trans->node_id], 1);
 	if (!read_task)
 	{
 		ERROR_LOG("allocate memory error.");
@@ -212,7 +212,7 @@ int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_
 		goto error;
 	}
 
-	DEBUG_LOG("before read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
+	DEBUG_LOG("before read_mr[%d] addr content is %s", rdma_trans->node_id, midd_client->read_mr[rdma_trans->node_id]->mr->addr);
 	err=ibv_post_send ( rdma_trans->qp, &send_wr2, &bad_wr2 );
 	if ( err )
 	{
@@ -223,7 +223,7 @@ int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_
 
 	while (!write_task->done_flag);
 	while (!read_task->done_flag);
-	DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client->read_mr[rdma_trans->node_id]->mr->addr);
+	DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, midd_client->read_mr[rdma_trans->node_id]->mr->addr);
 
 	return 0;
 	

@@ -90,10 +90,10 @@ out:
 
 struct dhmp_transport* dhmp_node_select_by_id(int node_id)
 {
-	if (client->connect_trans[node_id] != NULL &&
-		(client->connect_trans[node_id]->trans_state ==
+	if (midd_client->connect_trans[node_id] != NULL &&
+		(midd_client->connect_trans[node_id]->trans_state ==
 		 DHMP_TRANSPORT_STATE_CONNECTED))
-		return client->connect_trans[node_id];
+		return midd_client->connect_trans[node_id];
 	return NULL;
 }
 
@@ -101,9 +101,9 @@ struct dhmp_transport* dhmp_node_select_by_id(int node_id)
 int client_find_server_id()
 {
 	int i;
-	for(i=0; i<client->config.nets_cnt; i++)
+	for(i=0; i<midd_client->config.nets_cnt; i++)
 	{
-		if(client->connect_trans[i] != NULL)
+		if(midd_client->connect_trans[i] != NULL)
 			return i;
 	}
 	return -1;
@@ -111,7 +111,7 @@ int client_find_server_id()
 
 int find_next_node(int id)
 {
-	if(id >= client->config.nets_cnt-1)
+	if(id >= midd_client->config.nets_cnt-1)
 		return -1;
 	return  id + 1;
 }
