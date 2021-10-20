@@ -55,7 +55,7 @@ void *dhmp_transfer_dhmp_addr(struct dhmp_transport *rdma_trans, void *normal_ad
 	
 	for(index=0; index<DHMP_SERVER_NODE_NUM; index++)
 	{
-		if(rdma_trans==client->connect_trans[index])
+		if(rdma_trans==client_mgr->connect_trans[index])
 			break;
 	}
 	
@@ -99,7 +99,7 @@ static void dhmp_addr_info_insert_ht(void *dhmp_addr,
 	addr_info->dram_mr.addr=NULL;
 	index=dhmp_hash_in_client(dhmp_addr);
 	// DEBUG_LOG("insert ht %d %p",index,addr_info->nvm_mr.addr);
-	hlist_add_head(&addr_info->addr_entry, &client->addr_info_ht[index]);
+	hlist_add_head(&addr_info->addr_entry, &client_mgr->addr_info_ht[index]);
 }
 
 int dhmp_get_node_index_from_addr(void *dhmp_addr)
@@ -166,9 +166,10 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 	void *buff_mate_addr=NULL;
 
 	buff_malloc_work = (struct dhmp_buff_malloc_work*)work->work_data;
+	buff_malloc_work->done_flag_recv = false;
 	
 	/*build malloc request msg*/
-	req_msg.node_id = client->node_id;
+	req_msg.node_id = buff_malloc_work->node_id;
 	req_msg.buff_addr_info 		= buff_malloc_work->buff_addr_info;
 	req_msg.buff_mate_addr_info	= buff_malloc_work->buff_mate_addr_info;
 	req_msg.work = buff_malloc_work;
@@ -221,6 +222,39 @@ void dhmp_buff_malloc_work_handler(struct dhmp_work *work)
 }
 
 
+/* 
+ * Any work handler's duty is to transform dhmp_work to dhmp_request
+ * and wait for the reply from the other side.
+ */
+void dhmp_ack_handler(struct dhmp_work *work)
+{
+	/* dhmp_work is the abstract base class for any type dhmp_XXX_work*/
+	struct dhmp_ack_work *ack_work;
+	/* 
+	 * dhmp_msg is the most basic communication structure, 
+	 * as a carriage for transporting dhmp_request.
+	 */
+	struct dhmp_msg msg;
+	struct dhmp_ack_request req_msg;
+
+	ack_work = (struct dhmp_ack_work*)work->work_data;
+	
+	/*build malloc request msg*/
+	req_msg.node_id = client_mgr->node_id;
+	req_msg.ack_flag = ack_work->ack_flag;
+	req_msg.work = ack_work;
+
+	msg.msg_type = DHMP_ACK_REQUEST;
+	msg.data_size = sizeof(struct dhmp_ack_request);
+	msg.data= &req_msg;
+
+	dhmp_post_send(ack_work->rdma_trans, &msg);
+
+	while(ack_work->done_flag_recv == 0);
+	ack_work->done_flag = true;
+	
+	return;
+}
 
 void *dhmp_transfer_normal_addr(void *dhmp_addr)
 {
@@ -246,12 +280,12 @@ struct dhmp_addr_info *dhmp_get_addr_info_from_ht(int index, void *dhmp_addr)
 	struct dhmp_addr_info *addr_info;
 	void *normal_addr;
 	
-	if(hlist_empty(&client->addr_info_ht[index]))
+	if(hlist_empty(&client_mgr->addr_info_ht[index]))
 		goto out;
 	else
 	{
 		normal_addr=dhmp_transfer_normal_addr(dhmp_addr);
-		hlist_for_each_entry(addr_info, &client->addr_info_ht[index], addr_entry)
+		hlist_for_each_entry(addr_info, &client_mgr->addr_info_ht[index], addr_entry)
 		{
 			if(addr_info->nvm_mr.addr==normal_addr)
 				break;
@@ -421,17 +455,17 @@ void *dhmp_work_handle_thread(void *data)
 {
 	struct dhmp_work *work;
 
-	while(client && !client->ctx.stop)
+	while(client_mgr && !client_mgr->ctx.stop)
 	{
 		work=NULL;
 		
-		pthread_mutex_lock(&client->mutex_work_list);
-		if(!list_empty(&client->work_list))
+		pthread_mutex_lock(&client_mgr->mutex_work_list);
+		if(!list_empty(&client_mgr->work_list))
 		{
-			work=list_first_entry(&client->work_list, struct dhmp_work, work_entry);
+			work=list_first_entry(&client_mgr->work_list, struct dhmp_work, work_entry);
 			list_del(&work->work_entry);
 		}
-		pthread_mutex_unlock(&client->mutex_work_list);
+		pthread_mutex_unlock(&client_mgr->mutex_work_list);
 
 		if(work)
 		{
@@ -460,9 +494,13 @@ void *dhmp_work_handle_thread(void *data)
 				case DHMP_WORK_CLOSE:
 					dhmp_close_work_handler(work);
 					break;
-				// middleware 
+
+				/* WGT: add new work handler */
 				case DHMP_BUFF_MALLOC:
 					dhmp_buff_malloc_work_handler(work);
+					break;
+				case DHMP_WORK_ACK:
+					dhmp_ack_handler(work);
 					break;
 				default:
 					ERROR_LOG("work exist error.");

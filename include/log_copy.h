@@ -9,10 +9,11 @@
 #ifndef LOG_COPY_H
 #define LOG_COPY_H
 
-#define TOTAL_SIZE 64
+#define TOTAL_SIZE 1024*1024*64
 
 #include "dhmp_transport.h"
 #include "mid_api.h"
+#include "unlock_queue.h"
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
@@ -41,8 +42,10 @@ typedef struct logEntry
     bool        key_is_cut;    // key是否截断
     bool        value_is_cut;  // value是否截断
     bool        free_cas_flag; // 释放log时的cas标志位
+    bool        arrived_node2_done_flag;     // 标记位，该log的value部分是否已经到达node2节点
     void*       key_addr;      // key的连续起始地址
     void*       value_addr;    // value的连续起始地址
+    unsigned long int   id;    // 日志id，用来标记日志发送顺序 
 
     /* data */
 }logEntry;
@@ -91,7 +94,7 @@ typedef struct ring_buff_local
     
     void * buff_addr;
     struct dhmp_mr buff_mr;
-    int rd_key_pointer;             // 读者读取本地缓冲区key的偏移量
+    int rd_key_pointer;           // 读者读取本地缓冲区key的偏移量
 }LocalRingbuff;
 
 
@@ -111,6 +114,7 @@ typedef struct ring_buff_local
 extern LocalRingbuff *local_recv_buff;
 extern LocalMateRingbuff * local_recv_buff_mate;
 extern RemoteRingbuff * remote_buff;
+extern unQueue* wait_ack_queue;
 
 
 #define POS(addr) ((void*) addr - loacl_recv_buff->buff_addr)
@@ -150,10 +154,11 @@ static inline int rb_count_size (Ringbuff *rb, int pos)
 }
 
 
-static inline void update_wr_local(int new_ptr)
+static inline void update_wr_local(RemoteRingbuff * rb, int new_ptr)
 {
-    remote_buff->wr_pointer= new_ptr;
+    rb->wr_pointer= new_ptr;
 }
+
 
 static inline bool test_done(void * addr)
 {

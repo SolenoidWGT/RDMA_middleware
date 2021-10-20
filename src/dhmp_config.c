@@ -239,7 +239,7 @@ int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client )
 	if ( !config_doc )
 	{
 		ERROR_LOG ( "xml parse file error." );
-		return -1;
+		exit(1);
 	}
 
 	curnode=xmlDocGetRootElement ( config_doc );

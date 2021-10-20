@@ -351,6 +351,7 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 	rdma_trans->dram_used_size=rdma_trans->nvm_used_size=0;
 	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
 	rdma_trans->is_server = true;
+	rdma_trans->trans_mid_state = middware_INIT;
 	
 	err=dhmp_event_channel_create(rdma_trans);
 	if(err)
@@ -359,15 +360,27 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 		goto out;
 	}
 
+	/*Test device */
+	struct dhmp_device * server_dev = dhmp_get_dev_from_server();
+	struct dhmp_device * client_dev = dhmp_get_dev_from_server();
+	struct dhmp_device * trans_dev = rdma_trans->device;
+
+	if (memcmp(server_dev, client_dev, sizeof(struct dhmp_device) - sizeof(struct list_head)) != 0 ||
+		memcmp(server_dev->pd->context, trans_dev->pd->context, sizeof(struct ibv_pd)) != 0)
+	{
+		ERROR_LOG("device select error!");
+		exit(1);
+	}
+
 	if(!is_listen)
 	{
-		err=dhmp_memory_register(rdma_trans->device->pd,
+		err=dhmp_memory_register(trans_dev->pd,
 								&rdma_trans->send_mr,
 								SEND_REGION_SIZE);
 		if(err)
 			goto out_event_channel;
 
-		err=dhmp_memory_register(rdma_trans->device->pd,
+		err=dhmp_memory_register(trans_dev->pd,
 								&rdma_trans->recv_mr,
 								RECV_REGION_SIZE);
 		if(err)
@@ -677,7 +690,13 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 			break;
 		// WGT
 		case RDMA_CM_EVENT_REJECTED:
+			ERROR_LOG("occur \"RDMA_CM_EVENT_REJECTED\" error.");
 			retval=on_cm_rejected(event, rdma_trans);
+			break;
+		case RDMA_CM_EVENT_ADDR_ERROR:
+			ERROR_LOG("occur \"RDMA_CM_EVENT_ADDR_ERROR\" error.");
+			rdma_trans->trans_state = DHMP_TRANSPORT_STATE_ADDR_ERROR;
+			retval=-1;
 			break;
 		default:
 			ERROR_LOG("occur the other error.");

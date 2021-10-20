@@ -8,8 +8,8 @@
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
 
-#define RECV_REGION_SIZE (512*1024*1024)
-#define SEND_REGION_SIZE (512*1024*1024)
+#define RECV_REGION_SIZE (1*1024*1024)
+#define SEND_REGION_SIZE (1*1024*1024)
 
 /*recv region include poll recv region,normal recv region*/
 #define SINGLE_POLL_RECV_REGION (64*1024*1024)
@@ -30,7 +30,10 @@ enum dhmp_transport_state {
 	DHMP_TRANSPORT_STATE_CLOSED,
 	DHMP_TRANSPORT_STATE_DESTROYED,
 	DHMP_TRANSPORT_STATE_ERROR,
-	DHMP_TRANSPORT_STATE_REJECT
+
+	/* WGT: add new transport state*/
+	DHMP_TRANSPORT_STATE_REJECT,
+	DHMP_TRANSPORT_STATE_ADDR_ERROR,
 };
 
 struct dhmp_cq{
@@ -61,8 +64,6 @@ struct dhmp_transport{
 	struct rdma_event_channel *event_channel;
 	struct rdma_cm_id	*cm_id;
 
-	struct rdma_conn_param  connect_params;		// WGT
-
 	/*the var use for two sided RDMA*/
 	struct dhmp_mr send_mr;
 	struct dhmp_mr recv_mr;
@@ -74,6 +75,8 @@ struct dhmp_transport{
 	long nvm_used_size;
 
 	bool is_server;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
+	struct rdma_conn_param  connect_params;		/* WGT */
+	enum middware_state trans_mid_state;			/* WGT: mark this trans is at which middware stage */
 	struct list_head client_entry;
 };
 

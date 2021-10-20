@@ -16,6 +16,7 @@
 
 #include "log_copy.h"
 
+
 static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
 												struct dhmp_msg* msg)
 {
@@ -98,49 +99,72 @@ static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
 	char * addr;
 
 	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_buff_request));
-	INFO_LOG ( "Upstream node id is  %d",  response.req_info.node_id);
+	INFO_LOG ( "Recv buff request from node [%d]",  response.req_info.node_id);
 	response.node_id = server_instance->server_id;
-	
+
 	dev=dhmp_get_dev_from_server();
-	if(local_recv_buff == NULL && local_recv_buff_mate == NULL)
+
+	/* 
+	 * If in first time, we init buffer, next time will return 
+	 * metadata information directly .
+	 */
+	if(local_recv_buff == NULL ||  
+	   local_recv_buff_mate == NULL)
 	{
-		local_recv_buff_mate = (LocalMateRingbuff*) malloc(sizeof(LocalMateRingbuff));
-		re = dhmp_memory_register(dev->pd, &local_recv_buff_mate->buff_mate_mr, sizeof(LocalRingbuff));
-
-		if(re !=0)
-		{
-			ERROR_LOG("BUFF: malloc and register Local_Recv_Buff_MR Fail!");
-			free(local_recv_buff_mate);
-			local_recv_buff_mate = NULL;
-			local_recv_buff = NULL;
-			goto req_error;
-		}
-
-		local_recv_buff = (LocalRingbuff*) local_recv_buff_mate->buff_mate_mr.addr;
-		local_recv_buff->wr_pointer = 0;
-		local_recv_buff->rd_pointer = 0;
-		local_recv_buff->size = TOTAL_SIZE;
-		local_recv_buff->rd_key_pointer = 0;
+		LocalRingbuff     * tmp_buff_ptr;
+		LocalMateRingbuff * tmp_buff_mate_ptr;
 		
-
-		re =  dhmp_memory_register(dev->pd, &local_recv_buff->buff_mr, TOTAL_SIZE);
-		if(re !=0)
+		/* Double checked lock */
+		pthread_mutex_lock(&buff_init_lock);
+		if(local_recv_buff == NULL ||
+		   local_recv_buff_mate == NULL)
 		{
-			ERROR_LOG("BUFF: malloc and register buff Fail!");
-			ibv_dereg_mr(local_recv_buff_mate->buff_mate_mr.mr);
-			free(local_recv_buff_mate->buff_mate_mr.addr);
-			free(local_recv_buff_mate);
-			local_recv_buff_mate = NULL;
-			local_recv_buff= NULL;
-			goto req_error;
+			tmp_buff_mate_ptr = (LocalMateRingbuff*) malloc(sizeof(LocalMateRingbuff));
+			/* 
+			 * dhmp_memory_register will also allocate memory and 
+			 * register memory.
+			 */
+			re = dhmp_memory_register(dev->pd, &tmp_buff_mate_ptr->buff_mate_mr, \
+										sizeof(LocalRingbuff));
+
+			if(re !=0)
+			{
+				ERROR_LOG("BUFF: malloc and register Local_Recv_Buff_MR Fail!");
+				free(tmp_buff_mate_ptr);
+				goto req_error;
+			}
+
+			tmp_buff_ptr = (LocalRingbuff*) tmp_buff_mate_ptr->buff_mate_mr.addr;
+			tmp_buff_ptr->wr_pointer = 0;
+			tmp_buff_ptr->rd_pointer = 0;
+			tmp_buff_ptr->size = TOTAL_SIZE;
+			tmp_buff_ptr->rd_key_pointer = 0;
+
+			re =  dhmp_memory_register(dev->pd, &tmp_buff_ptr->buff_mr, TOTAL_SIZE);
+			if(re !=0)
+			{
+				ERROR_LOG("BUFF: malloc and register buff Fail!");
+				ibv_dereg_mr(tmp_buff_mate_ptr->buff_mate_mr.mr);
+				free(tmp_buff_mate_ptr->buff_mate_mr.addr);
+				free(tmp_buff_mate_ptr);
+				goto req_error;
+			}
+			tmp_buff_ptr->buff_addr = tmp_buff_ptr->buff_mr.addr;
+
+			/* Init buffer with zero, because we need use tag to indicate finishment */
+			memset(tmp_buff_ptr->buff_addr, 0, tmp_buff_ptr->size);	
+
+			/* At the very last moment can we assign value to global variables */
+			local_recv_buff = tmp_buff_ptr;
+			local_recv_buff_mate = tmp_buff_mate_ptr;
+
+			INFO_LOG("Local mate addr is %p, buff addr is %p", local_recv_buff_mate, local_recv_buff->buff_addr);
 		}
-		local_recv_buff->buff_addr = local_recv_buff->buff_mr.addr;
-		memset(local_recv_buff->buff_addr, 0, local_recv_buff->size);	/* 将buffer初始化为 0， 因为我们要使用标志位进行比较*/
-		INFO_LOG("Local mate addr is %p, buff addr is %p", local_recv_buff, local_recv_buff->buff_addr);
+		pthread_mutex_unlock(&buff_init_lock);
 	}
 
+	/* It is safe for all node to copy mate data */
 	memcpy(&response.mr_buff, local_recv_buff_mate->buff_mate_mr.mr, sizeof(struct ibv_mr));
-	
 	memcpy(&response.mr_data, local_recv_buff->buff_mr.mr, sizeof(struct ibv_mr));
 
 	DEBUG_LOG("BUFF: malloc Buffer addr sucess");
@@ -157,6 +181,83 @@ req_error:
 	res_msg.data_size=sizeof(struct dhmp_buff_response);
 	res_msg.data=&response;
 	dhmp_post_send ( rdma_trans, &res_msg );
+
+	return ;
+}
+
+
+// static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
+// 												struct dhmp_msg* msg)
+// {
+// 	/* Get ack flag type from struct dhmp_msg */
+// 	struct dhmp_ack_request ack;
+// 	memcpy(&ack, msg->data, sizeof(struct dhmp_ack_request));
+
+// 	switch (ack.ack_flag)
+// 	{
+// 		case middware_INIT:
+// 			INFO_LOG ( "Get ack:[middware_INIT] from node [%d]",  ack.node_id);
+// 			break;
+// 		case middware_WAIT_MAIN_NODE:
+// 			INFO_LOG ( "Get ack:[middware_WAIT_MAIN_NODE], from node [%d]",  ack.node_id);
+// 			break;
+// 		case middware_WAIT_SUB_NODE:
+// 			INFO_LOG ( "Get ack:[middware_WAIT_SUB_NODE], from node [%d]",  ack.node_id);
+// 			break;
+// 		case middware_WAIT_MATE_DATA:
+// 			INFO_LOG ( "Get ack:[middware_WAIT_MATE_DATA], from node [%d]",  ack.node_id);
+// 			break;
+// 		default:
+// 			INFO_LOG ( "Unkown middware state from node [%d]",  ack.node_id);
+// 			break;
+// 	}
+
+// 	pthread_mutex_lock(&server_instance->mutex_client_list);
+// 	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
+// 	{
+// 		if (rdma_trans->node_id == ack.node_id)
+// 		{
+// 			rdma_trans->trans_mid_state = ack.ack_flag;
+// 			break;
+// 		}
+// 	}
+// 	pthread_mutex_unlock(&server_instance->mutex_client_list);
+
+// 	return ;
+// }
+
+static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
+												struct dhmp_msg* msg)
+{
+	/* Get ack flag type from struct dhmp_msg */
+	struct dhmp_ack_request ack;
+	struct dhmp_ack_response response;
+	struct dhmp_msg res_msg;
+
+	memcpy(&ack, msg->data, sizeof(struct dhmp_ack_request));
+	response.node_id = server_instance->server_id;
+	memcpy(&response.req_info, &ack, sizeof(struct dhmp_ack_request));
+
+	switch (ack.ack_flag)
+	{
+		case RQ_BUFFER_STATE:
+			INFO_LOG ( "Get ack request :[RQ_BUFFER_STATE] from node [%d]",  ack.node_id);
+			pthread_mutex_lock(&buff_init_lock);
+			if(local_recv_buff == NULL || local_recv_buff_mate == NULL)
+				response.res_ack_flag = RS_BUFFER_NOREADY;
+			else
+				response.res_ack_flag = RS_BUFFER_READY;
+			pthread_mutex_unlock(&buff_init_lock);
+			break;
+		default:
+			ERROR_LOG ( "Get ack unkonwn response from node [%d]",  ack.node_id);
+			break;
+	}
+
+	res_msg.msg_type = DHMP_ACK_RESPONSE;
+	res_msg.data_size = sizeof(struct dhmp_ack_response);
+	res_msg.data= &response;
+	dhmp_post_send(rdma_trans, &res_msg);
 
 	return ;
 }
@@ -187,8 +288,35 @@ static void dhmp_malloc_buff_response_handler(struct dhmp_transport* rdma_trans,
 	response_msg.req_info.work->done_flag_recv = true;
 }
 
+static void dhmp_ack_response_handler(struct dhmp_transport* rdma_trans,
+													struct dhmp_msg* msg)
 
+{
+	struct dhmp_ack_response response_msg;
+	memcpy(&response_msg, msg->data, sizeof(struct dhmp_ack_response));
+	
+	switch (response_msg.res_ack_flag)
+	{
+		case RS_INIT_READY:
+			INFO_LOG ( "Get ack response :[RS_INIT_READY] from node [%d]",  response_msg.node_id);
+			break;
+		case RS_INIT_NOREADY:
+			INFO_LOG ( "Get ack response :[RS_INIT_NOREADY] from node [%d]",  response_msg.node_id);
+			break;
+		case RS_BUFFER_READY:
+			INFO_LOG ( "Get ack response :[RS_BUFFER_READY] from node [%d]",  response_msg.node_id);
+			break;
+		case RS_BUFFER_NOREADY:
+			INFO_LOG ( "Get ack response :[RS_BUFFER_NOREADY] from node [%d]",  response_msg.node_id);
+			break;
+		default:
+			ERROR_LOG ( "Unkown middware response ack from node [%d]", response_msg.node_id);
+			break;
+	}
 
+	response_msg.req_info.work->res_ack_flag = response_msg.res_ack_flag;
+	response_msg.req_info.work->done_flag_recv = true;
+}
 
 static void dhmp_malloc_error_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
 {
@@ -260,10 +388,6 @@ static void dhmp_send_response_handler(struct dhmp_transport* rdma_trans, struct
 	task->recv_flag = true;
 }
 
-
-
-
-
 /**
  *	dhmp_wc_recv_handler:handle the IBV_WC_RECV event
  */
@@ -294,7 +418,7 @@ void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
 			dhmp_send_response_handler(rdma_trans, msg);
 			break;
 
-		// WGT
+		/* WGT:add new request handler */
 		case DHMP_BUFF_MALLOC_REQUEST:
 			dhmp_malloc_buff_request_handler(rdma_trans, msg);
 			break;
@@ -303,7 +427,12 @@ void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
 			break;
 		case DHMP_BUFF_MALLOC_ERROR:
 			break;
-
+		case DHMP_ACK_REQUEST:
+			dhmp_ack_request_handler(rdma_trans, msg);
+			break;
+		case DHMP_ACK_RESPONSE:
+			dhmp_ack_response_handler(rdma_trans, msg);
+			break;
 		case DHMP_MSG_MEM_CHANGE:
 			//dhmp_mem_change_handle(rdma_trans, msg);
 			break;

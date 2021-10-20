@@ -34,16 +34,30 @@ struct dhmp_malloc_work{
 
 /*WGT: dhmp malloc Buff work*/
 struct dhmp_buff_malloc_work{
+	/* transposrt_mate_data header */
+
 	struct dhmp_transport *rdma_trans;
+	/* Data section begin */
 	struct dhmp_addr_info * buff_addr_info;
 	struct dhmp_addr_info * buff_mate_addr_info;
 	void * buff_addr;
 	void * buff_mate_addr;
+	/* Data section end */
+
+	int node_id;
+	/* done_flag should place in the end of struct(? )*/
 	bool done_flag_recv;
 	bool done_flag;
 };
 
-
+/*WGT: dhmp ACK work, only send ack flag*/
+struct dhmp_ack_work{
+	struct dhmp_transport *rdma_trans;
+	enum request_state  ack_flag; 
+	enum response_state  res_ack_flag; 
+	bool done_flag;
+	bool done_flag_recv;
+};
 
 struct dhmp_free_work{
 	struct dhmp_transport *rdma_trans;
@@ -76,7 +90,9 @@ enum dhmp_work_type{
 	DHMP_WORK_DONE,
 	DHMP_WORK_SEND,
 
-	DHMP_BUFF_MALLOC
+	/* WGT: add new work type */
+	DHMP_BUFF_MALLOC,
+	DHMP_WORK_ACK
 };
 
 struct dhmp_work{

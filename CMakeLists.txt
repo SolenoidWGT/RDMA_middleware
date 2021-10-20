@@ -1,5 +1,5 @@
 # CMake 最低版本号要求
-cmake_minimum_required (VERSION 3.18)
+cmake_minimum_required (VERSION 3.14)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 # 项目信息
 project (MID_RDMA)

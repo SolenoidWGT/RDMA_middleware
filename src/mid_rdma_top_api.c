@@ -7,17 +7,16 @@
 #include "dhmp_task.h"
 #include "dhmp_work.h"
 #include "dhmp_client.h"
+#include "dhmp_server.h"
 #include "dhmp_log.h"
 #include "mid_rdma_utils.h"
-
-extern struct dhmp_client *client;
 
 
 struct dhmp_transport* dhmp_get_trans_from_addr(void *dhmp_addr)
 {
 	long long node_index=(long long)dhmp_addr;
 	node_index=node_index>>48;
-	return client->connect_trans[node_index];
+	return client_mgr->connect_trans[node_index];
 }
 
 int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write)
@@ -49,9 +48,9 @@ int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write)
 			
 	work->work_type=DHMP_WORK_SEND;
 	work->work_data=&send_work;
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
 	while(!send_work.done_flag);
 	free(work);
 	return 0;
@@ -103,9 +102,9 @@ void *dhmp_malloc(size_t length, int nodeid)
 	work->work_type=DHMP_WORK_MALLOC;
 	work->work_data=&malloc_work;
 
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
 	
 	while(!malloc_work.done_flag);
 
@@ -128,7 +127,6 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 	struct dhmp_work *work;
 	struct dhmp_addr_info * buff_addr_info;
 	struct dhmp_addr_info * buff_mate_addr_info;
-	
 
 	/*select which node to alloc nvm memory*/
 	rdma_trans = dhmp_node_select_by_id(nodeid);
@@ -154,31 +152,26 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 		goto out_work;
 	}
 
-
 	buff_addr_info->nvm_mr.length=0;
 	buff_addr_info->dram_mr.addr=NULL;
 
 	buff_mate_addr_info->nvm_mr.length = 0;
 	buff_mate_addr_info->dram_mr.addr = NULL;
 
-
-	
+	buff_malloc_work.node_id = server_instance->server_id;
 	buff_malloc_work.buff_addr_info=buff_addr_info;
 	buff_malloc_work.buff_mate_addr_info=buff_mate_addr_info;
-
-
 	buff_malloc_work.rdma_trans=rdma_trans;
-
 	buff_malloc_work.done_flag=false;
 	buff_malloc_work.done_flag_recv = false;
 
 	work->work_type = DHMP_BUFF_MALLOC;
 	work->work_data = &buff_malloc_work;
 
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
-	
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
+
 	while(!buff_malloc_work.done_flag);
 
 	free(work);
@@ -192,8 +185,6 @@ out:
 out_work:
 	free(work);
 }
-
-
 
 // WGT
 int dhmp_read(void *dhmp_addr, void * local_buf, size_t count, 
@@ -228,9 +219,9 @@ int dhmp_read(void *dhmp_addr, void * local_buf, size_t count,
 	work->work_type=DHMP_WORK_READ;
 	work->work_data=&rwork;
 	
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
 
 	while(!rwork.done_flag);
 
@@ -271,9 +262,9 @@ int dhmp_write(void *dhmp_addr, void * local_buf, size_t count,
 	work->work_type=DHMP_WORK_WRITE;
 	work->work_data=&wwork;
 	
-	pthread_mutex_lock(&client->mutex_work_list);
-	list_add_tail(&work->work_entry, &client->work_list);
-	pthread_mutex_unlock(&client->mutex_work_list);
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
 	
 	while(!wwork.done_flag);
 
@@ -282,5 +273,60 @@ int dhmp_write(void *dhmp_addr, void * local_buf, size_t count,
 	return 0;
 }
 
+/* 
+ * WGT: add send ack api for top app 
+ * In low level, send ack use two-side rdma primitive.
+ * 
+ * Arg: 
+ * 		nodeid : which node you want to send ack.
+ */
+enum response_state
+dhmp_ack(int nodeid, enum request_state acktype)
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_ack_work ackwork;
+	struct dhmp_work *work;
+	enum response_state re;
 
+	/*select which node to alloc nvm memory*/
+	rdma_trans = dhmp_node_select_by_id(nodeid);
+	if(!rdma_trans)
+	{
+		ERROR_LOG("don't exist remote server_instance.");
+		return -1;
+	}
+
+	if(!rdma_trans||rdma_trans->trans_state!=DHMP_TRANSPORT_STATE_CONNECTED)
+	{
+		ERROR_LOG("rdma connection error.");
+		return -1;
+	}
+
+	work=malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("allocate memory error.");
+		return -1;
+	}
+	
+	ackwork.rdma_trans = rdma_trans;
+	ackwork.done_flag = false;
+	ackwork.done_flag_recv = false;
+	ackwork.ack_flag = acktype;
+	
+	work->work_type=DHMP_WORK_ACK;
+	work->work_data=&ackwork;
+	
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
+
+	while(!ackwork.done_flag);
+
+	re = ackwork.res_ack_flag;
+
+	free(work);
+	
+	return re;
+}
 

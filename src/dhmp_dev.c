@@ -33,10 +33,11 @@ static int dhmp_dev_init ( struct ibv_context* verbs, struct dhmp_device* dev_pt
 	}
 
 	dev_ptr->verbs=verbs;
-	INFO_LOG("max mr %d max qp mr %d max cqe %d",
+	INFO_LOG("max mr %d max qp mr %d max cqe %d max_mr_size is %lu",
 			dev_ptr->device_attr.max_mr,
 			dev_ptr->device_attr.max_qp_wr,
-			dev_ptr->device_attr.max_cqe);
+			dev_ptr->device_attr.max_cqe,
+			dev_ptr->device_attr.max_mr_size);
 	return retval;
 
 out:

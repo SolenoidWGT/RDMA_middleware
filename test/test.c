@@ -33,16 +33,17 @@
 int main(int argc,char *argv[])
 {
 	struct dhmp_server * mid_server;
+
+	/* 
+	 * Init buffer mate lock must at the very beginning, before dhmp_server_init, 
+	 * this node will not recv any request from other node. 
+	 */ 
+	pthread_mutex_init(&buff_init_lock, NULL);
+
 	/*init list about rdma device*/
 	mid_server = dhmp_server_init();
 	/* wait peer server_instance init server_instance*/
 	MID_LOG("Test begin!");
-	int i;
-	for(i =0; i<WAIT_TIME; i++){
-		MID_LOG("Please wait peer server_instance init, left time is %d s", WAIT_TIME-i);
-		sleep(1);
-	}
-	MID_LOG("Node [%d] server_instance has finished init", mid_server->server_id);
 
     if(server_instance->num_chain_clusters <= 1)
     {
@@ -57,11 +58,15 @@ int main(int argc,char *argv[])
     else
         node_class = NORMAL; 	// 中间节点
 
+	MID_LOG("Node [%d] server_instance has finished init itself's server_instance, \
+					begin establish connections with other nodes", mid_server->server_id);
+
 	dhmp_client_init(SIZE*2, mid_server->server_id, node_class);
 
-	MID_LOG("server_instance [%d] has extablished connecting with node [%d]", \
-						mid_server->server_id, find_next_node(server_instance->server_id));
-	
+	MID_LOG("Node [%d] establish connection with other nodes", mid_server->server_id);
+	// MID_LOG("server_instance [%d] has extablished connecting with node [%d]", \
+	// 					mid_server->server_id, find_next_node(server_instance->server_id));
+
 	buff_init();
 	pthread_join(server_instance->ctx.epoll_thread, NULL);
 	return 0;

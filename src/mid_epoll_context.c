@@ -100,7 +100,9 @@ int dhmp_context_del_event_fd(struct dhmp_context *ctx, int fd)
 	retval=epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 	if(retval<0)
 		ERROR_LOG("dhmp_context del event fd error.");
-	
+	else
+		INFO_LOG("dhmp_context del event fd success.");
+
 	return retval;
 }
 

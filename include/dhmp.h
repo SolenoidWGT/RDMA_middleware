@@ -26,7 +26,7 @@
 
 #define DHMP_SERVER_DRAM_TH ((uint64_t)1024*1024*1024*1)
 
-#define DHMP_SERVER_NODE_NUM 3
+#define DHMP_SERVER_NODE_NUM 10
 
 #define DHMP_DEFAULT_SIZE 256
 #define DHMP_DEFAULT_POLL_TIME 800000000
@@ -76,9 +76,33 @@ enum dhmp_msg_type{
 	DHMP_MSG_SEND_REQUEST,
 	DHMP_MSG_SEND_RESPONSE,
 
+	/* WGT: add new msg type */
 	DHMP_BUFF_MALLOC_REQUEST,
 	DHMP_BUFF_MALLOC_RESPONSE,
 	DHMP_BUFF_MALLOC_ERROR,
+	DHMP_ACK_REQUEST,
+	DHMP_ACK_RESPONSE,
+};
+
+enum middware_state{
+	middware_INIT,
+	middware_WAIT_MAIN_NODE,
+	middware_WAIT_SUB_NODE,
+	middware_WAIT_MATE_DATA,
+
+};
+
+enum request_state{
+	RQ_INIT_STATE,
+	RQ_BUFFER_STATE,
+};
+
+enum response_state
+{
+	RS_INIT_READY,
+	RS_INIT_NOREADY,
+	RS_BUFFER_READY,
+	RS_BUFFER_NOREADY,
 };
 
 /*struct dhmp_msg:use for passing control message*/
@@ -110,29 +134,6 @@ struct dhmp_mc_response{
 	struct dhmp_mc_request req_info;
 	struct ibv_mr mr;
 };
-
-
-
-
-
-/*WGT: dhmp malloc Buff request msg*/
-struct dhmp_buff_request{
-	int node_id;
-	struct dhmp_buff_malloc_work * work;
-	struct dhmp_addr_info * buff_addr_info;
-	struct dhmp_addr_info * buff_mate_addr_info;
-};
-
-/*WGT: dhmp malloc Buff response msg*/
-struct dhmp_buff_response{
-	struct dhmp_buff_request req_info;
-	struct ibv_mr mr_buff;
-	struct ibv_mr mr_data;
-	int node_id;
-};
-
-
-
 
 /*dhmp free memory request msg*/
 struct dhmp_free_request{
@@ -217,6 +218,50 @@ void dhmp_client_destroy();
 void dhmp_server_destroy();
 
 
+/*
+ * dhmp get ack 
+ */
+enum response_state
+dhmp_ack(int nodeid, enum request_state acktype);
 
+/* Middware Add New stuff is here */
+
+/*
+ * 一次dhmp标准的rpc通信过程是，主动发起请求的一方（客户端）构建request结构体，结构体中包含最终对端返回数据存放位置的指针，
+ * 而接受请求的一方（服务端），构建response结构体，结构体中包含服务的返回的数据
+ * 最终在客户端的recv_handler函数中将response结构体中的结果数据拷贝到request结构体给出的指针的地址处
+ * 这也就是为什么response结构体里面需要包含request结构体 
+ */
+
+/*WGT: dhmp ack request request msg*/
+struct dhmp_ack_request{
+	int node_id;
+	struct dhmp_ack_work * work;
+	enum request_state  ack_flag; 
+};
+struct dhmp_ack_response{
+	int node_id;
+	struct dhmp_ack_request req_info;
+	enum response_state  res_ack_flag; 
+	unsigned long int log_id;
+};
+
+/*WGT: dhmp malloc Buff request msg*/
+struct dhmp_buff_request{
+	int node_id;
+	struct dhmp_buff_malloc_work * work;
+	struct dhmp_addr_info * buff_addr_info;
+	struct dhmp_addr_info * buff_mate_addr_info;
+};
+
+/*WGT: dhmp malloc Buff response msg*/
+struct dhmp_buff_response{
+	struct dhmp_buff_request req_info;
+	struct ibv_mr mr_buff;
+	struct ibv_mr mr_data;
+	int node_id;
+};
+
+extern pthread_mutex_t buff_init_lock; 
 
 #endif
