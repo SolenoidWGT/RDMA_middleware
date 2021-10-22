@@ -53,6 +53,7 @@ struct dhmp_buff_malloc_work{
 /*WGT: dhmp ACK work, only send ack flag*/
 struct dhmp_ack_work{
 	struct dhmp_transport *rdma_trans;
+	void* log_ptr;
 	enum request_state  ack_flag; 
 	enum response_state  res_ack_flag; 
 	bool done_flag;

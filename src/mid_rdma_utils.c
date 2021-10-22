@@ -5,6 +5,7 @@
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "mid_rdma_utils.h"
+#include "dhmp_server.h"
 
 // void mm()
 // {
@@ -88,7 +89,7 @@ out:
 	return NULL;
 }
 
-struct dhmp_transport* dhmp_node_select_by_id(int node_id)
+struct dhmp_transport* dhmp_client_node_select_by_id(int node_id)
 {
 	if (client_mgr->connect_trans[node_id] != NULL &&
 		(client_mgr->connect_trans[node_id]->trans_state ==
@@ -97,6 +98,29 @@ struct dhmp_transport* dhmp_node_select_by_id(int node_id)
 	return NULL;
 }
 
+struct dhmp_transport* dhmp_server_node_select_by_id(int node_id)
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	bool found = false;
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
+	{
+		INFO_LOG("found server node is [%d]", rdma_trans->node_id );
+		if (rdma_trans->node_id == node_id)
+		{
+			found = true;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
+
+	if (!found)
+	{
+		ERROR_LOG("Not found server node[%d]", node_id );
+	}
+
+	return rdma_trans;
+}
 
 int client_find_server_id()
 {

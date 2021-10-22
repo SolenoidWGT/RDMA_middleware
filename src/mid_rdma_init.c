@@ -71,6 +71,10 @@ dhmp_connect(int node_id)
 								dhmp_get_dev_from_client(),		/* device 这里需要考虑下多个节点的情况吗？ 我认为不用，因为一个node只有一个RDMA设备*/
 								false,
 								false);
+		
+		/* 主动连接的一方在 dhmp_transport 标记自己的 node_id 供 server 端确认*/
+		conn->node_id = client_mgr->node_id;
+
 		if(!conn)
 		{
 			ERROR_LOG("create the [%d]-th transport error.", node_id);
@@ -236,6 +240,9 @@ struct dhmp_server * dhmp_server_init()
 	server_instance->listen_trans=dhmp_transport_create(&server_instance->ctx,
 											dhmp_get_dev_from_server(),
 											true, false);
+
+	server_instance->listen_trans->node_id = 1024; // 特殊的 node_id
+
 	if(!server_instance->listen_trans)
 	{
 		ERROR_LOG("create rdma transport error.");

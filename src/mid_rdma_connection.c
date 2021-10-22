@@ -476,6 +476,7 @@ cleanqp:
 	return retval;
 }
 
+/* 注意这里传进来的 rdma_trans 是监听 rdma_trans*/
 static int on_cm_connect_request(struct rdma_cm_event* event, 
 										struct dhmp_transport* rdma_trans)
 {
@@ -501,6 +502,30 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	
 	new_trans->link_trans=NULL;
 	new_trans->cm_id=event->id;
+
+	/* 记录对端 nodeid */
+	char cur_ip[INET_ADDRSTRLEN];
+	int cur_ip_len, cluster_ip_len;
+	struct sockaddr_in *sock = &event->id->route.addr.dst_sin;
+	inet_ntop(AF_INET, &(sock->sin_addr), cur_ip, sizeof(cur_ip));
+	cur_ip_len=strlen(cur_ip);
+
+	INFO_LOG("cur ip is \"%s\" ", cur_ip);
+	for ( i=0; i<DHMP_SERVER_NODE_NUM; i++ )
+	{
+		char * cluster_node_ip = server_instance->config.net_infos[i].addr;
+		cluster_ip_len = strlen(cluster_node_ip);
+
+		INFO_LOG("ip is \"%s\" ", cluster_node_ip);
+		if(memcmp(cur_ip, cluster_node_ip, max(cur_ip_len,cluster_ip_len))==0)
+		{
+			new_trans->node_id = i;
+			INFO_LOG("Catch node is %d ", new_trans->node_id);
+		}
+	} 
+
+	INFO_LOG("rdma_trans->node_id is [%d]!", rdma_trans->node_id);
+
 	event->id->context=new_trans;
 	
 	retval=dhmp_qp_create(new_trans);

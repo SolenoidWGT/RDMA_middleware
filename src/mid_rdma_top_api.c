@@ -10,6 +10,7 @@
 #include "dhmp_server.h"
 #include "dhmp_log.h"
 #include "mid_rdma_utils.h"
+#include "log_copy.h"
 
 
 struct dhmp_transport* dhmp_get_trans_from_addr(void *dhmp_addr)
@@ -71,7 +72,7 @@ void *dhmp_malloc(size_t length, int nodeid)
 	}
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	rdma_trans = dhmp_client_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");
@@ -129,7 +130,7 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 	struct dhmp_addr_info * buff_mate_addr_info;
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	rdma_trans = dhmp_client_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");
@@ -281,7 +282,7 @@ int dhmp_write(void *dhmp_addr, void * local_buf, size_t count,
  * 		nodeid : which node you want to send ack.
  */
 enum response_state
-dhmp_ack(int nodeid, enum request_state acktype)
+dhmp_ack(int nodeid, enum request_state acktype, bool isClient)
 {
 	struct dhmp_transport *rdma_trans=NULL;
 	struct dhmp_ack_work ackwork;
@@ -289,7 +290,11 @@ dhmp_ack(int nodeid, enum request_state acktype)
 	enum response_state re;
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	if (isClient)
+		rdma_trans = dhmp_client_node_select_by_id(nodeid);
+	else
+		rdma_trans = dhmp_server_node_select_by_id(nodeid);
+
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");
@@ -313,7 +318,20 @@ dhmp_ack(int nodeid, enum request_state acktype)
 	ackwork.done_flag = false;
 	ackwork.done_flag_recv = false;
 	ackwork.ack_flag = acktype;
-	
+
+	if (acktype == RQ_FINISHED_LOOP)
+	{
+		logEntry * log;
+		if(!emptyQueue(executing_queue))
+			topQueue(executing_queue, &log);
+		else
+		{
+			ERROR_LOG("ACK Null log!");
+			return -1;
+		}
+		ackwork.log_ptr = log->mateData.log_ptr;
+	}
+
 	work->work_type=DHMP_WORK_ACK;
 	work->work_data=&ackwork;
 	

@@ -40,6 +40,7 @@
 /* 头节点不需要缓冲区，但是要维护一个当前发送log的链表，用来判断value是否已经传输到了二号主节点 */
 unQueue* wait_ack_queue = NULL;
 unsigned long int global_id = 0;    // 全局自增id
+unsigned long int global_read_log_nums = 0;
 
 
 /* 非头节点需要缓冲区 */
@@ -189,48 +190,28 @@ bool main_node_write_log(char * key, char * value)
     log->mateData.value_length = value_len;
     log->key_addr = NULL;       /*XXX*/
     log->value_addr = malloc(value_len);
-    log->id = global_id++;
+    log->mateData.id = global_id++;
+
+    /* add for hyperloop */
+    log->mateData.log_ptr = log;
+    log->arrived_node_tail = false;
+
     memcpy((char*)log + LOG_KEY_OFFSET(*log), key, key_len);
     memcpy(log->value_addr, value, value_len-1);
     memcpy(log->value_addr + value_len-1, &test, TAG);
 
-    MID_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
-                            KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
-    
-    int node_nums = server_instance->num_chain_clusters;
-    int node_id = server_instance->server_id + 1;  // should be 0 + 1
-    int log_pos = -1;
-    for (; node_id < node_nums; node_id++)
+    MID_LOG("writer_thread: log id is [%d], log ptr is \"%p\", \"key_len is %d, value_len is %d, total move size is %d", \
+                        log->mateData.id, log, KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
+
+    if(!check_remote_size(remote_buff, send_len + value_len))
     {
-        int mate_pos;
-        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
-
-        if(!check_remote_size(rbuff, send_len + value_len))
-        {
-            MID_LOG("remote buffer is full, please retry!");
-            return false;
-        }
-
-        // 这里有一个值得讨论的点，所有节点返回的 log->log_pos 是不是都是一样的
-        // 理论上来说各个副本节点的最前指针的位置应该是一致的，但是由于各个节点的处理速度不同
-        // 在环形缓冲区进行折返的时候，各个节点的缓冲区剩余空间不一定足够，如果遇到这种情况
-        // 我们强制所有节点停止传输，以保持一致的 log->log_pos 的值
-        mate_pos = rb_write_mate(log, send_len, value_len, rbuff);
-
-        if (log_pos == -1)
-            log_pos = mate_pos;
-        else if (mate_pos == -1 || mate_pos != log_pos)
-        {
-            ERROR_LOG("rb_write_mate fail!, becase of not insufficient land area");
-            /* TODO: add error handler */
-            exit(0);
-        }
+        MID_LOG("remote buffer is full, please retry!");
+        return false;
     }
-    assert(log_pos != -1); 
 
-    // 头节点元数据和数据一起发送给下一个节点（头节点2）
-    // 不需要将log加入到 sending 队列中，主节点不需要网卡，直接发送等待第二个主节点的ack
-    log->log_pos = log_pos;
+    /* hyperloop 实现 */
+    // 在 hyperloop 的实现中， 元数据是和数据是一起传输的
+    log->log_pos = rb_write_mate(log, send_len, value_len, remote_buff);
     value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
     rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
 
@@ -244,11 +225,12 @@ bool main_node_write_log(char * key, char * value)
     //     ERROR_LOG("valueQueue full!");
     //     return false;
     // }
-    else
-    {
-        MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
-        return true;
-    }
+
+    // 等待 hyperloop 写操作结束
+    while(!log->arrived_node_tail);
+
+    MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
+    return true;
 }
 
 // 将log从sending queue拿出来，复用log结构体
@@ -293,12 +275,35 @@ void * NIC_thread(void * args)
             assert(log != NULL);
             popQueue(sending_queue);
 
+            size_t value_len = log->mateData.value_length;
+            size_t send_len = sizeof(logEntry) + log->mateData.key_length;
+
+            if(!check_remote_size(remote_buff, send_len + value_len))
+            {
+                MID_LOG("remote buffer is full, please retry!");
+                exit(0);
+            }
+
+            MID_LOG("NIC_thread has write log [%d] data context :\"%s\", key_len is %d, value_len is %d, total move size is %d", \
+                            count, log->value_addr, KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
+
+            MID_LOG("NIC_thread write log key is \"%s\", value is \"%s\"", (char*)log->key_addr, (char*)log->value_addr);
+
+            //  需要注意 log 的 key 是位于 data 字段的，所以需要 memcpy 到指定的位置 
+            memcpy((char*)log + LOG_KEY_OFFSET(*log), log->key_addr, KEY_LEN(*log));
+            // 在 hyperloop 的实现中， 元数据是和数据是一起传输的
+            log->log_pos = rb_write_mate(log, send_len, value_len, remote_buff);
             value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
             rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
 
             // free_log(log);
-            MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
             count++;
+            // 如果old等于sum, 就把old+1写入sum
+            if(!__sync_bool_compare_and_swap(&log->free_cas_flag , false, true))
+            {
+                MID_LOG("NIC_thread win cas of log [%d] !", log->mateData.id);
+                free_log(log);
+            }
         }
         if(count == REPEAT)
             break;
@@ -310,7 +315,6 @@ void * NIC_thread(void * args)
 // 写元数据，并提前移动远端写指针，预留出data的位置
 // 修改 remote_buff 应该作为一个参数传入 rb_write_mate 函数
 // 头节点需要使用星型结构去写元数据
-/* SB Huawai， 我日你先人 */
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, 
                         RemoteRingbuff * targetbuff)
 {
@@ -397,11 +401,24 @@ void* reader_thread(void * args)
         while(can_parse_log_nums > 0)
         {
             void *value_addr = top_log();
-            // 将log加入到 sending 队列中
-            send_log();
+
+            if (node_class == TAIL)
+            {
+                /* hyperloop 实现*/
+                // 如果是尾部节点，需要主动向头节点发送ACK
+                // 但是这里实现有一个问题， dhmp_ack 是客户端向服务端进行请求
+                // 在我们的cs架构中， 主节点是 clinet 尾节点是 server
+                // 需要对 dhmp_client_node_select_by_id 进行修改， 选出来正确的 trans 
+                dhmp_ack(0 /* head main node id is always 0 */, RQ_FINISHED_LOOP, false);
+            }
+
             /* do sommeting begin */
             MID_LOG("reader_thread has read log value is \"%s\"", value_addr);
             count++;
+
+            // 将log加入到 sending 队列中
+            send_log();
+
             /* do sommeting end */
             can_parse_log_nums--;
             clean_log();
@@ -477,15 +494,25 @@ int read_log_key(int limits)
             break;
         else
         {
-            logEntry * log = (logEntry *) malloc(sizeof(logEntry));
             int key_pos;
+            logEntry * log_tmp = (logEntry *) malloc(sizeof(logEntry));
+            /* hyperloop */
+            /* 由于需要每个从节点自己发送key数据， 所以需要在分配log时提前分配key空间 */
+            logEntry * log;
 
-            memset(log, 0, sizeof(logEntry));
-            log->log_pos = pos;     /*  log位于buffer的起始下标 */
+            memset(log_tmp, 0, sizeof(logEntry));
+            log_tmp->log_pos = pos;     /*  log位于buffer的起始下标 */
 
-            rb_read(log, pos, sizeof(logMateData), true);
+            rb_read(log_tmp, pos, sizeof(logMateData), true);
 
-             /*  如果key发生截断，则把key拷贝出来 */
+            /* hyperloop */
+            /* tmp_log 获取到key信息后就可以释放了 */
+            log = (logEntry *) malloc(sizeof(logEntry) + KEY_LEN(*log_tmp));
+            memcpy(log, log_tmp, sizeof(logEntry));
+            free(log_tmp);
+            log_tmp = NULL;
+
+            /*  如果key发生截断，则把key拷贝出来 */
             key_pos = (pos + LOG_KEY_OFFSET(*log)) & (buff_size - 1);
             if(key_pos + KEY_LEN(*log) >= buff_size)
             {
@@ -500,7 +527,7 @@ int read_log_key(int limits)
                 log->key_addr = local_recv_buff->buff_addr + key_pos;
                 //MID_LOG("read_log_key: key is not cut, key is \"%s\"", log->key_addr);
             }
-                
+
             pos = (pos + LOG_NEXT_OFFSET(*log)) & (buff_size -1);
 
             /*  必须保证key是一个c语言风格的字符串 */
@@ -525,9 +552,17 @@ int read_log_key(int limits)
                 exit(0);
             }
 
-            MID_LOG("read_log_key: key is \"%s\", key len is %d, value len is %d", \
-                                    log->key_addr, log->mateData.key_length, log->mateData.value_length);
+            MID_LOG("read_log_key: log id is [%d], key is \"%s\", key len is %d, value len is %d", \
+                        log->mateData.id, log->key_addr, log->mateData.key_length, log->mateData.value_length);
+
+            if (log->mateData.id != global_read_log_nums)
+            {
+                ERROR_LOG("Unexpected log order, now log id is[%d], expected id is [%d]", log->mateData.id, read_num);
+                exit(0);
+            }
+
             read_num++;
+            global_read_log_nums++;
         }
     }
     local_recv_buff->rd_key_pointer = pos;
@@ -576,8 +611,8 @@ int read_log_value(int limits)
                 }
                 read_num++;
                 MID_LOG("read_log_value: key is \"%s\", key len is %d, value len is %d, value is \"%s\"", \
-                        log->key_addr, log->mateData.key_length, log->mateData.value_length, log->value_addr);
-                
+                        (char*)log->key_addr, log->mateData.key_length, log->mateData.value_length, (char*)log->value_addr);
+
                 popQueue(value_peeding_queue);   /*  将logEntry从 peedinmg value 队列中移除 */
             }
         }
@@ -620,7 +655,13 @@ void clean_log()
 
         MID_LOG("clean_log: key is \"%s\"", log->key_addr);
        
-        free_log(log);      /* 只有执行完后才可以释放log*/
+        /* 只有执行完后才可以释放log*/
+        // 如果old等于sum, 就把old+1写入sum
+        if(!__sync_bool_compare_and_swap(&log->free_cas_flag , false, true))
+        {
+            MID_LOG("reader_thread win cas of log [%d] !", log->mateData.id);
+            free_log(log);
+        } 
     }
 }
 
@@ -824,10 +865,12 @@ void buff_init()
         {
             if (client_mgr->connect_trans[i] != NULL)
             {
-                enum response_state re = dhmp_ack(client_mgr->connect_trans[i]->node_id, RQ_BUFFER_STATE);
+                enum response_state re = dhmp_ack(client_mgr->connect_trans[i]->node_id, \
+                                                    RQ_BUFFER_STATE, true);
                 while (re != RS_BUFFER_READY)
                 {
-                    re = dhmp_ack(client_mgr->connect_trans[i]->node_id, RQ_BUFFER_STATE);
+                    re = dhmp_ack(client_mgr->connect_trans[i]->node_id,\
+                                 RQ_BUFFER_STATE, true);
                 }
             }
         }

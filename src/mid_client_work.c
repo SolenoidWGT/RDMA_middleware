@@ -242,6 +242,7 @@ void dhmp_ack_handler(struct dhmp_work *work)
 	/*build malloc request msg*/
 	req_msg.node_id = client_mgr->node_id;
 	req_msg.ack_flag = ack_work->ack_flag;
+	req_msg.log_ptr = ack_work->log_ptr;
 	req_msg.work = ack_work;
 
 	msg.msg_type = DHMP_ACK_REQUEST;

@@ -95,6 +95,7 @@ enum middware_state{
 enum request_state{
 	RQ_INIT_STATE,
 	RQ_BUFFER_STATE,
+	RQ_FINISHED_LOOP,
 };
 
 enum response_state
@@ -103,6 +104,7 @@ enum response_state
 	RS_INIT_NOREADY,
 	RS_BUFFER_READY,
 	RS_BUFFER_NOREADY,
+	HYPERLOOP_ONE_LOOP,
 };
 
 /*struct dhmp_msg:use for passing control message*/
@@ -222,7 +224,7 @@ void dhmp_server_destroy();
  * dhmp get ack 
  */
 enum response_state
-dhmp_ack(int nodeid, enum request_state acktype);
+dhmp_ack(int nodeid, enum request_state acktype, bool isClient);
 
 /* Middware Add New stuff is here */
 
@@ -238,12 +240,15 @@ struct dhmp_ack_request{
 	int node_id;
 	struct dhmp_ack_work * work;
 	enum request_state  ack_flag; 
+	// 在传输过程中同时传输当前 log 在主节点的指针值，等到传输到尾节点时再将该指针反传给主节点标记完成
+	void* log_ptr; 
 };
 struct dhmp_ack_response{
 	int node_id;
 	struct dhmp_ack_request req_info;
 	enum response_state  res_ack_flag; 
-	unsigned long int log_id;
+	// 在传输过程中同时传输当前 log 在主节点的指针值，等到传输到尾节点时再将该指针反传给主节点标记完成
+	void* log_ptr;
 };
 
 /*WGT: dhmp malloc Buff request msg*/

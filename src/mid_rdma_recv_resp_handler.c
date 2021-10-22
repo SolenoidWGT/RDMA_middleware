@@ -249,6 +249,20 @@ static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 				response.res_ack_flag = RS_BUFFER_READY;
 			pthread_mutex_unlock(&buff_init_lock);
 			break;
+
+		/* hyperloop 实现 */
+		case RQ_FINISHED_LOOP:
+			INFO_LOG ( "Get ack request :[RQ_FINISHED_LOOP] from node [%d], ack log_ptr is [%p]",  ack.node_id, ack.log_ptr);
+	
+			if (ack.log_ptr == NULL)
+			{
+				ERROR_LOG ("FATEL: log ptr is NULL!");
+				exit(0);
+			}
+			
+			((logEntry *)(ack.log_ptr))->arrived_node_tail = true;
+			response.res_ack_flag = HYPERLOOP_ONE_LOOP;
+			break;
 		default:
 			ERROR_LOG ( "Get ack unkonwn response from node [%d]",  ack.node_id);
 			break;
@@ -258,7 +272,6 @@ static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 	res_msg.data_size = sizeof(struct dhmp_ack_response);
 	res_msg.data= &response;
 	dhmp_post_send(rdma_trans, &res_msg);
-
 	return ;
 }
 
@@ -308,6 +321,9 @@ static void dhmp_ack_response_handler(struct dhmp_transport* rdma_trans,
 			break;
 		case RS_BUFFER_NOREADY:
 			INFO_LOG ( "Get ack response :[RS_BUFFER_NOREADY] from node [%d]",  response_msg.node_id);
+			break;
+		case HYPERLOOP_ONE_LOOP:
+			INFO_LOG ( "Get ack response :[HYPERLOOP_ONE_LOOP] from node [%d]",  response_msg.node_id);
 			break;
 		default:
 			ERROR_LOG ( "Unkown middware response ack from node [%d]", response_msg.node_id);

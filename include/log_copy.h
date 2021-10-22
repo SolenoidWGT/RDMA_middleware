@@ -30,9 +30,11 @@ enum log_read_state {
 
 typedef struct logMateData
 {
-    int key_length;            //  key部分长度
-    int value_length;          //  data部分长度
-    // char data[];                        //  key + value
+    int                   key_length;       // key部分长度
+    int                   value_length;     // data部分长度
+	void                * log_ptr;          // 在传输过程中同时传输当前 log 在主节点的指针值，等到传输到尾节点时再将该指针反传给主节点标记完成
+    unsigned long int     id;               // 日志id，用来标记日志发送顺序 
+    // char data[];                         // key + value
 }logMateData;
 
 typedef struct logEntry
@@ -43,9 +45,11 @@ typedef struct logEntry
     bool        value_is_cut;  // value是否截断
     bool        free_cas_flag; // 释放log时的cas标志位
     bool        arrived_node2_done_flag;     // 标记位，该log的value部分是否已经到达node2节点
+
+    bool        arrived_node_tail;     // 标记位，该log是否已经走完 hyperloop 的一圈 
+
     void*       key_addr;      // key的连续起始地址
     void*       value_addr;    // value的连续起始地址
-    unsigned long int   id;    // 日志id，用来标记日志发送顺序 
 
     /* data */
 }logEntry;
@@ -165,4 +169,9 @@ static inline bool test_done(void * addr)
     char    test = 1;
     return !( (*(char*)addr ) ^ test);      /* 自己跟自己异或才会是0 */
 }
+
+
+extern unQueue* executing_queue;
+
+
 #endif
