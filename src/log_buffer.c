@@ -857,24 +857,7 @@ void buff_init()
         }
 
         wait_ack_queue = initQueue(sizeof(void*), QUEUE_SIZE * 10);
-        // 头节点
-        pthread_create(&writerForRemote, NULL, writer_thread, NULL);
-        // pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         MID_LOG("HEAD node[%d] init scuesss!", server_instance->server_id);
-    }
-    else
-    {
-        if (node_class == NORMAL)
-        {
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
-            MID_LOG("NORMAL node[%d] init sucess!", server_instance->server_id);
-        }
-        else
-        {
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-            MID_LOG("TAIL node[%d] init sucess!", server_instance->server_id);
-        }
     }
 }
 
