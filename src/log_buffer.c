@@ -65,7 +65,7 @@ int node_class = -1;
 void * DEBUG_UPPER_BUFFER;
 pthread_mutex_t dirty_lock;
 
-void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
+void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff * targetbuff);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
@@ -234,7 +234,7 @@ bool main_node_write_log(char * key, char * value)
     // 不需要将log加入到 sending 队列中，主节点不需要网卡，直接发送等待第二个主节点的ack
     log->log_pos = log_pos;
     value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-    rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
+    rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), remote_buff);
 
     if(unlikely(log->log_pos == -1))
     {
@@ -296,7 +296,7 @@ void * NIC_thread(void * args)
             popQueue(sending_queue);
 
             value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-            rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
+            rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), remote_buff);
 
             // free_log(log);
             MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
@@ -356,20 +356,20 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen,
 }
 
 // 写data数据，写到预留好的位置上去
-void rb_write_data (void *upper_api_buf, int log_pos, int dataLen)
+void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff)
 {
     // MID_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
     int pos = log_pos;
 
-    if(pos + dataLen > remote_buff->size)
+    if(pos + dataLen > targetbuff->size)
     {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        int left_size = targetbuff->size - pos;
+        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         dataLen -= left_size;
         pos = 0;
     }
-    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
+    dhmp_write(targetbuff->buff, upper_api_buf, dataLen, pos, false);
 }
 
 /* 
