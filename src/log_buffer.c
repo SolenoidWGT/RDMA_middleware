@@ -217,40 +217,20 @@ bool main_node_write_log(char * key, char * value)
         // 理论上来说各个副本节点的最前指针的位置应该是一致的，但是由于各个节点的处理速度不同
         // 在环形缓冲区进行折返的时候，各个节点的缓冲区剩余空间不一定足够，如果遇到这种情况
         // 我们强制所有节点停止传输，以保持一致的 log->log_pos 的值
-        mate_pos = rb_write_mate(log, send_len, value_len, rbuff);
+        log->log_pos = rb_write_mate(log, send_len, value_len, rbuff);
 
-        if (log_pos == -1)
-            log_pos = mate_pos;
-        else if (mate_pos == -1 || mate_pos != log_pos)
+        if(unlikely(log->log_pos == -1))
         {
-            ERROR_LOG("rb_write_mate fail!, becase of not insufficient land area");
-            /* TODO: add error handler */
-            exit(0);
-        }
+            ERROR_LOG("rb_write_mate fail!");
+            return false;
+        } 
+        
+        value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
+        rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), rbuff);
     }
-    assert(log_pos != -1); 
 
-    // 头节点元数据和数据一起发送给下一个节点（头节点2）
-    // 不需要将log加入到 sending 队列中，主节点不需要网卡，直接发送等待第二个主节点的ack
-    log->log_pos = log_pos;
-    value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-    rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), remote_buff);
-
-    if(unlikely(log->log_pos == -1))
-    {
-        ERROR_LOG("rb_write_mate fail!");
-        return false;
-    } 
-    // else if(unlikely(!putQueue(sending_queue, &log)))
-    // {
-    //     ERROR_LOG("valueQueue full!");
-    //     return false;
-    // }
-    else
-    {
-        MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
-        return true;
-    }
+    MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
+    return true;
 }
 
 // 将log从sending queue拿出来，复用log结构体
