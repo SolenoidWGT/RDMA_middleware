@@ -165,4 +165,9 @@ static inline bool test_done(void * addr)
     char    test = 1;
     return !( (*(char*)addr ) ^ test);      /* 自己跟自己异或才会是0 */
 }
+
+
+extern void* writer_thread(void * args);
+extern void* reader_thread(void * args);
+extern void * NIC_thread(void * args);
 #endif
