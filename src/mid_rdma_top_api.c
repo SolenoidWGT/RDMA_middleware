@@ -71,7 +71,7 @@ void *dhmp_malloc(size_t length, int nodeid)
 	}
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	rdma_trans = dhmp_client_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");
@@ -129,7 +129,7 @@ void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr)
 	struct dhmp_addr_info * buff_mate_addr_info;
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	rdma_trans = dhmp_client_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");
@@ -289,7 +289,7 @@ dhmp_ack(int nodeid, enum request_state acktype)
 	enum response_state re;
 
 	/*select which node to alloc nvm memory*/
-	rdma_trans = dhmp_node_select_by_id(nodeid);
+	rdma_trans = dhmp_client_node_select_by_id(nodeid);
 	if(!rdma_trans)
 	{
 		ERROR_LOG("don't exist remote server_instance.");

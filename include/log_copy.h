@@ -30,6 +30,7 @@ enum log_read_state {
 
 typedef struct logMateData
 {
+    unsigned long int   id;    // 日志id，用来标记日志发送顺序 
     int key_length;            //  key部分长度
     int value_length;          //  data部分长度
     // char data[];                        //  key + value
@@ -45,7 +46,6 @@ typedef struct logEntry
     bool        arrived_node2_done_flag;     // 标记位，该log的value部分是否已经到达node2节点
     void*       key_addr;      // key的连续起始地址
     void*       value_addr;    // value的连续起始地址
-    unsigned long int   id;    // 日志id，用来标记日志发送顺序 
 
     /* data */
 }logEntry;
