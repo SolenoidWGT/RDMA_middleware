@@ -65,6 +65,9 @@ int node_class = -1;
 void * DEBUG_UPPER_BUFFER;
 pthread_mutex_t dirty_lock;
 
+int wait_work_counter = 0;
+int wait_work_expect_counter = 0;
+
 void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff * targetbuff);
 bool rb_read (void *buf, int start, int len, bool isCopy);
@@ -84,7 +87,7 @@ int get_node_class()
 
 void update_wr_remote(RemoteRingbuff * rb)
 {
-    dhmp_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
+    dhmp_asyn_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
 }
 
 bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
@@ -229,6 +232,29 @@ bool main_node_write_log(char * key, char * value)
         rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), rbuff);
     }
 
+    while(1)
+    {
+        int target = __sync_fetch_and_add(&wait_work_expect_counter, 0);
+        int actual = __sync_fetch_and_add(&wait_work_counter, 0);
+        MID_LOG("target is %d, actual is %d", target, actual);
+        if (target == actual)
+        {
+            struct dhmp_work * work = NULL, * tp_wprk = NULL;
+            pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
+            list_for_each_entry_safe(work, tp_wprk, &client_mgr->work_asyn_list , work_entry)
+            {
+                struct dhmp_rw_work * wwork = (struct dhmp_rw_work *) (work->work_data);
+                while(!wwork->done_flag);
+                MID_LOG("dhmp_rw_work at addr %p finished", wwork->dhmp_addr);
+                list_del(&work->work_entry);
+                free(wwork);
+                free(work);
+            }
+            pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
+            break;
+        }
+    }
+
     MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
     return true;
 }
@@ -299,9 +325,7 @@ void * NIC_thread(void * args)
 // 写元数据，并提前移动远端写指针，预留出data的位置
 // 修改 remote_buff 应该作为一个参数传入 rb_write_mate 函数
 // 头节点需要使用星型结构去写元数据
-/* SB Huawai， 我日你先人 */
-int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, 
-                        RemoteRingbuff * targetbuff)
+int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff * targetbuff)
 {
     int totalLen = mateLen + dataLen;
     int log_pos =  targetbuff->wr_pointer;      // 当前 log 写入位置
@@ -313,12 +337,12 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen,
     if(pos + mateLen > targetbuff->size)
     {
         int left_size = targetbuff->size - pos;
-        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
+        dhmp_asyn_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         mateLen -= left_size;
         pos = 0;
     }
-    dhmp_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
+    dhmp_asyn_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
     update_wr_local(targetbuff, pos+mateLen);
 
     // 再移动远端写偏移量
@@ -344,12 +368,12 @@ void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuf
     if(pos + dataLen > targetbuff->size)
     {
         int left_size = targetbuff->size - pos;
-        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
+        dhmp_asyn_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         dataLen -= left_size;
         pos = 0;
     }
-    dhmp_write(targetbuff->buff, upper_api_buf, dataLen, pos, false);
+    dhmp_asyn_write(targetbuff->buff, upper_api_buf, dataLen, pos, false);
 }
 
 /* 

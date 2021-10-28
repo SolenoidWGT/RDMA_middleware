@@ -399,6 +399,7 @@ void dhmp_write_work_handler(struct dhmp_work *work)
 
 
 out:
+	addr_info->write_flag=false;
 	wwork->done_flag=true;
 }
 
@@ -466,6 +467,12 @@ void *dhmp_work_handle_thread(void *data)
 			list_del(&work->work_entry);
 		}
 		pthread_mutex_unlock(&client_mgr->mutex_work_list);
+
+		// 开启多个 work handle 线程
+		pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
+		__sync_fetch_and_add(&wait_work_counter, 1);
+		list_add_tail(&work->work_entry, &client_mgr->work_asyn_list);
+		pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
 
 		if(work)
 		{

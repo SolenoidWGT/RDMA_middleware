@@ -224,6 +224,12 @@ void dhmp_server_destroy();
 enum response_state
 dhmp_ack(int nodeid, enum request_state acktype);
 
+
+
+int
+dhmp_asyn_write(void *dhmp_addr, void * local_buf, size_t count, 
+						off_t offset, bool is_atomic);
+
 /* Middware Add New stuff is here */
 
 /*
@@ -263,5 +269,6 @@ struct dhmp_buff_response{
 };
 
 extern pthread_mutex_t buff_init_lock; 
-
+extern int wait_work_counter;
+extern int wait_work_expect_counter;
 #endif
