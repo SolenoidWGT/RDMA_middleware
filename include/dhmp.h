@@ -49,7 +49,10 @@
 #define false 0
 #endif
 
-
+#define DHMP_MR_REUSE_POLICY
+#ifdef DHMP_MR_REUSE_POLICY
+#define RDMA_SEND_THREASHOLD 2097152
+#endif
 
 extern struct memkind * pmem_kind;
 
