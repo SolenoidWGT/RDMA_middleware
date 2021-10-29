@@ -304,7 +304,7 @@ dhmp_asyn_write(void *dhmp_addr, void * local_buf, size_t count,
 	wwork->offset = offset;		// WGT
 	wwork->is_atomic = is_atomic;// wgt
 			
-	work->work_type=DHMP_WORK_WRITE;
+	work->work_type=DHMP_ASYN_WORK_WRITE;
 	work->work_data=(void*)wwork;
 	
 	pthread_mutex_lock(&client_mgr->mutex_work_list);

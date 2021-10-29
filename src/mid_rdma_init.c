@@ -199,7 +199,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id, int no
 	pthread_mutex_init(&client_mgr->mutex_work_list, NULL);
 	pthread_mutex_init(&client_mgr->mutex_asyn_work_list, NULL);
 	INIT_LIST_HEAD(&client_mgr->work_list);
-
+	INIT_LIST_HEAD(&client_mgr->work_asyn_list);
 
 	pthread_create(&client_mgr->work_thread1, NULL, dhmp_work_handle_thread, (void*)client_mgr);
 	pthread_create(&client_mgr->work_thread2, NULL, dhmp_work_handle_thread, (void*)client_mgr);

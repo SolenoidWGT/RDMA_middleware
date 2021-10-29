@@ -87,7 +87,7 @@ int get_node_class()
 
 void update_wr_remote(RemoteRingbuff * rb)
 {
-    dhmp_asyn_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
+    dhmp_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
 }
 
 bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
@@ -165,6 +165,8 @@ void* writer_thread(void * args)
     count = 0;
     valueQueue = initQueue(sizeof(void*), 1024);
     MID_LOG("------------------------Write thread create---------------------------------------\n");
+    wait_work_counter=0;
+    wait_work_expect_counter=0;
 	while(count < REPEAT)
 	{
         char * key = NAME_LISTS[count];
@@ -175,6 +177,36 @@ void* writer_thread(void * args)
 
     MID_LOG("Main ndoe writer_thread write all mate data and exit!");
 	pthread_exit(0);
+}
+
+
+void wait_asyn_finish()
+{
+    while(1)
+    {
+        int target = __sync_fetch_and_add(&wait_work_expect_counter, 0);
+        int actual = __sync_fetch_and_add(&wait_work_counter, 0);
+        MID_LOG("target is %d, actual is %d", target, actual);
+        if (target == actual)
+        {
+            struct dhmp_work * work = NULL, * tp_wprk = NULL;
+            pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
+            list_for_each_entry_safe(work, tp_wprk, &client_mgr->work_asyn_list , work_entry)
+            {
+                struct dhmp_rw_work * wwork = (struct dhmp_rw_work *) (work->work_data);
+                while(!wwork->done_flag);
+                MID_LOG("dhmp_rw_work at addr %p finished", wwork->dhmp_addr);
+                list_del(&work->work_entry);
+                free(wwork);
+                free(work);
+
+                __sync_fetch_and_sub(&wait_work_expect_counter, 1);
+                __sync_fetch_and_sub(&wait_work_counter, 1);
+            }
+            pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
+            break;
+        }
+    }
 }
 
 // 只有头节点需要负责发送元数据
@@ -203,57 +235,45 @@ bool main_node_write_log(char * key, char * value)
                         log->mateData.id, KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
     int node_nums = server_instance->num_chain_clusters;
-    int node_id = server_instance->server_id + 1;  // should be 0 + 1
+    int node_id;  // should be 0 + 1
     int log_pos = -1;
-    for (; node_id < node_nums; node_id++)
+    for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
     {
         int mate_pos;
         RemoteRingbuff* rbuff = remote_buffs_list[node_id];
 
         if(!check_remote_size(rbuff, send_len + value_len))
         {
-            MID_LOG("remote buffer is full, please retry!");
-            return false;
+            ERROR_LOG("remote buffer is full, please retry!");
+            exit(0);
         }
 
         // 这里有一个值得讨论的点，所有节点返回的 log->log_pos 是不是都是一样的
         // 理论上来说各个副本节点的最前指针的位置应该是一致的，但是由于各个节点的处理速度不同
         // 在环形缓冲区进行折返的时候，各个节点的缓冲区剩余空间不一定足够，如果遇到这种情况
         // 我们强制所有节点停止传输，以保持一致的 log->log_pos 的值
-        log->log_pos = rb_write_mate(log, send_len, value_len, rbuff);
-
-        if(unlikely(log->log_pos == -1))
-        {
-            ERROR_LOG("rb_write_mate fail!");
-            return false;
-        } 
+        mate_pos =  rb_write_mate(log, send_len, value_len, rbuff);
         
+        if (log_pos == -1)
+            log_pos = mate_pos;
+        else if (mate_pos == -1 || mate_pos != log_pos)
+        {
+            ERROR_LOG("rb_write_mate fail!, becase of not insufficient land area");
+            /* TODO: add error handler */
+            exit(0);
+        }
+    }
+
+    assert(log_pos != -1); 
+    log->log_pos = log_pos;
+    for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
+    {
+        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
         value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
         rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), rbuff);
     }
 
-    while(1)
-    {
-        int target = __sync_fetch_and_add(&wait_work_expect_counter, 0);
-        int actual = __sync_fetch_and_add(&wait_work_counter, 0);
-        MID_LOG("target is %d, actual is %d", target, actual);
-        if (target == actual)
-        {
-            struct dhmp_work * work = NULL, * tp_wprk = NULL;
-            pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
-            list_for_each_entry_safe(work, tp_wprk, &client_mgr->work_asyn_list , work_entry)
-            {
-                struct dhmp_rw_work * wwork = (struct dhmp_rw_work *) (work->work_data);
-                while(!wwork->done_flag);
-                MID_LOG("dhmp_rw_work at addr %p finished", wwork->dhmp_addr);
-                list_del(&work->work_entry);
-                free(wwork);
-                free(work);
-            }
-            pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
-            break;
-        }
-    }
+    wait_asyn_finish();
 
     MID_LOG("Head_writer_thread write all data of key \"%s\"", (char*)log + LOG_KEY_OFFSET(*log));
     return true;
@@ -337,12 +357,12 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff
     if(pos + mateLen > targetbuff->size)
     {
         int left_size = targetbuff->size - pos;
-        dhmp_asyn_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
+        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         mateLen -= left_size;
         pos = 0;
     }
-    dhmp_asyn_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
+    dhmp_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
     update_wr_local(targetbuff, pos+mateLen);
 
     // 再移动远端写偏移量
@@ -544,7 +564,7 @@ int read_log_key(int limits)
 
             if (log->mateData.id != global_read_log_nums)
             {
-                ERROR_LOG("Unexpected log order, now log id is[%d], expected id is [%d]", log->mateData.id, read_num);
+                ERROR_LOG("Unexpected log order, now log id is[%d], expected id is [%d]", log->mateData.id, global_read_log_nums);
                 exit(0);
             }
 

@@ -469,11 +469,6 @@ void *dhmp_work_handle_thread(void *data)
 		pthread_mutex_unlock(&client_mgr->mutex_work_list);
 
 		// 开启多个 work handle 线程
-		pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
-		__sync_fetch_and_add(&wait_work_counter, 1);
-		list_add_tail(&work->work_entry, &client_mgr->work_asyn_list);
-		pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
-
 		if(work)
 		{
 
@@ -488,6 +483,11 @@ void *dhmp_work_handle_thread(void *data)
 				case DHMP_WORK_READ:
 					dhmp_read_work_handler(work);
 					break;
+				case DHMP_ASYN_WORK_WRITE:
+					pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
+					__sync_fetch_and_add(&wait_work_counter, 1);
+					list_add_tail(&work->work_entry, &client_mgr->work_asyn_list);
+					pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
 				case DHMP_WORK_WRITE:
 					dhmp_write_work_handler(work);
 					break;

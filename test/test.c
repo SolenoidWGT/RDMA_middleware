@@ -52,12 +52,10 @@ int main(int argc,char *argv[])
         exit(0);
     }
 
-    if(server_instance->server_id == server_instance->num_chain_clusters - 1)
-		node_class = TAIL; 		// 尾节点
     else if(server_instance->server_id == 0)
         node_class = HEAD;		// 头节点
     else
-        node_class = NORMAL; 	// 中间节点
+        node_class = TAIL; 	// 中间节点
 
 	MID_LOG("Node [%d] server_instance has finished init itself's server_instance, \
 					begin establish connections with other nodes", mid_server->server_id);

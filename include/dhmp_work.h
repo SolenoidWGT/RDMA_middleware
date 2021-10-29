@@ -92,7 +92,8 @@ enum dhmp_work_type{
 
 	/* WGT: add new work type */
 	DHMP_BUFF_MALLOC,
-	DHMP_WORK_ACK
+	DHMP_WORK_ACK,
+	DHMP_ASYN_WORK_WRITE,
 };
 
 struct dhmp_work{
