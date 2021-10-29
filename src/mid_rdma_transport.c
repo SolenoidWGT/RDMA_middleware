@@ -13,6 +13,8 @@
 #include "dhmp_dev.h"
 
 
+static struct dhmp_send_mr* dhmp_get_mr_from_send_list(struct dhmp_transport* rdma_trans, void* addr, int length);
+
 void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
 void dhmp_post_all_recv(struct dhmp_transport *rdma_trans);
 
@@ -110,32 +112,6 @@ void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
 one side rdma
 */
 
-static struct dhmp_send_mr* dhmp_get_mr_from_send_list(struct dhmp_transport* rdma_trans, void* addr, int length )
-{
-	struct dhmp_send_mr *res,*tmp;
-	void* new_addr=NULL;
-
-	res=(struct dhmp_send_mr* )malloc(sizeof(struct dhmp_send_mr));
-	if(!res)
-	{
-		ERROR_LOG("allocate memory error.");
-		return NULL;
-	}
-	
-	res->mr=ibv_reg_mr(rdma_trans->device->pd,
-						addr, length, IBV_ACCESS_LOCAL_WRITE);
-	if(!res->mr)
-	{
-		ERROR_LOG("ibv register memory error.");
-		goto error;
-	}
-		
-	return res;
-
-error:
-	free ( res );
-	return NULL;
-}
 
 
 int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, struct ibv_mr* mr, void* local_addr, int length)
@@ -271,8 +247,26 @@ int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* l
 	while(!read_task->done_flag);
 	
 
-	ibv_dereg_mr(smr->mr);
-	free(smr);
+#ifdef DHMP_MR_REUSE_POLICY
+	if (length > RDMA_SEND_THREASHOLD)
+	{
+#endif
+		// 如果注册的内存区域大于RDMA_SEND_THREASHOLD
+		// 则没有必要复用该内存区域
+		ibv_dereg_mr(smr->mr);
+		free(smr);
+
+#ifdef DHMP_MR_REUSE_POLICY
+	}
+	else
+	{
+		// 否则，将其放入到内存复用队列send_mr_list中
+		memcpy(local_addr, read_task->sge.addr, length);
+		pthread_mutex_lock(&client_mgr->mutex_send_mr_list);
+		list_add(&smr->send_mr_entry, &client_mgr->send_mr_list);
+		pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+	}
+#endif
 		
 	//DEBUG_LOG("local addr content is %s", local_addr);
 
@@ -323,6 +317,10 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 	sge.length=write_task->sge.length;
 	sge.lkey=write_task->sge.lkey;
 
+#ifdef DHMP_MR_REUSE_POLICY
+	if (length <= RDMA_SEND_THREASHOLD)
+		memcpy(write_task->sge.addr, local_addr, length);
+#endif
 
 	err=ibv_post_send ( rdma_trans->qp, &send_wr, &bad_wr );
 	if ( err )
@@ -335,8 +333,17 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 	while (!write_task->done_flag);
 	// DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client_mgr->read_mr[rdma_trans->node_id]->mr->addr);
 
-	ibv_dereg_mr(smr->mr);
-	free(smr);
+#ifdef DHMP_MR_REUSE_POLICY
+	if (length > RDMA_SEND_THREASHOLD)
+	{
+#endif
+		while (!write_task->done_flag);
+		ibv_dereg_mr(smr->mr);
+		free(smr);
+
+#ifdef DHMP_MR_REUSE_POLICY
+	}
+#endif
 	return 0;
 error:
 	return -1;
@@ -370,3 +377,107 @@ const char* dhmp_wc_opcode_str(enum ibv_wc_opcode opcode)
 	};
 }
 
+// static struct dhmp_send_mr* dhmp_get_mr_from_send_list(struct dhmp_transport* rdma_trans, void* addr, int length )
+// {
+// 	struct dhmp_send_mr *res,*tmp;
+// 	void* new_addr=NULL;
+
+// 	res=(struct dhmp_send_mr* )malloc(sizeof(struct dhmp_send_mr));
+// 	if(!res)
+// 	{
+// 		ERROR_LOG("allocate memory error.");
+// 		return NULL;
+// 	}
+	
+// 	res->mr=ibv_reg_mr(rdma_trans->device->pd,
+// 						addr, length, IBV_ACCESS_LOCAL_WRITE);
+// 	if(!res->mr)
+// 	{
+// 		ERROR_LOG("ibv register memory error.");
+// 		goto error;
+// 	}
+		
+// 	return res;
+
+// error:
+// 	free ( res );
+// 	return NULL;
+// }
+
+static struct dhmp_send_mr* dhmp_get_mr_from_send_list(struct dhmp_transport* rdma_trans, void* addr, int length)
+{
+	struct dhmp_send_mr* res, * tmp;
+	void* new_addr = NULL;
+
+	res = (struct dhmp_send_mr*)malloc(sizeof(struct dhmp_send_mr));
+	if (!res)
+	{
+		ERROR_LOG("allocate memory error.");
+		return NULL;
+	}
+
+#ifdef DHMP_MR_REUSE_POLICY
+	// 对于大于1MB的对象，RDMA写操作会采用传统的方式，
+	// 先对local_addr内存区域进行注册，之后向qp提交相应的工作请求
+	if (length > RDMA_SEND_THREASHOLD)
+	{
+#endif
+
+		res->mr = ibv_reg_mr(rdma_trans->device->pd,
+			addr, length, IBV_ACCESS_LOCAL_WRITE);
+		if (!res->mr)
+		{
+			ERROR_LOG("ibv register memory error.");
+			goto error;
+		}
+
+#ifdef DHMP_MR_REUSE_POLICY
+	}
+	else
+	{
+		// 对于小于1MB的对象，RDMA写操作会采用MR复用的方式，
+		// 将待写的数据先拷贝到复用的内存区域上，之后向qp提交远程写的工作请求
+		pthread_mutex_lock(&client_mgr->mutex_send_mr_list);
+		list_for_each_entry(tmp, &client_mgr->send_mr_list, send_mr_entry)
+		{
+			if (tmp->mr->length >= length) // 找到第一个内存区域大于待发送大小的已注册内存
+				break;
+		}
+
+		// 如果没有找到满足条件的内存区域，回到传统方法，重新分配内存
+		if ((&tmp->send_mr_entry) == (&client_mgr->send_mr_list))
+		{
+			pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+			new_addr = malloc(length);
+			if (!new_addr)
+			{
+				ERROR_LOG("allocate memory error.");
+				goto error;
+			}
+
+			res->mr = ibv_reg_mr(rdma_trans->device->pd,
+				new_addr, length, IBV_ACCESS_LOCAL_WRITE);
+			if (!res->mr)
+			{
+				ERROR_LOG("ibv reg memory error.");
+				free(new_addr);
+				goto error;
+			}
+		}
+		else
+		{
+			// 如果找到满足条件的内存区域tmp，则直接复用
+			free(res);
+			res = tmp;
+			list_del(&res->send_mr_entry);
+			pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+		}
+	}
+#endif
+
+	return res;
+
+error:
+	free(res);
+	return NULL;
+}
