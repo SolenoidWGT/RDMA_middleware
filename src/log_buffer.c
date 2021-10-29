@@ -40,7 +40,7 @@
 /* 头节点不需要缓冲区，但是要维护一个当前发送log的链表，用来判断value是否已经传输到了二号主节点 */
 unQueue* wait_ack_queue = NULL;
 unsigned long int global_id = 0;    // 全局自增id
-
+unsigned long int global_read_log_nums = 0;
 
 /* 非头节点需要缓冲区 */
 LocalRingbuff *local_recv_buff = NULL;
@@ -65,7 +65,7 @@ int node_class = -1;
 void * DEBUG_UPPER_BUFFER;
 pthread_mutex_t dirty_lock;
 
-void rb_write_data (void *upper_api_buf, int log_pos, int dataLen);
+void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff * targetbuff);
 bool rb_read (void *buf, int start, int len, bool isCopy);
 bool read_one_log(void* upperAddr);
@@ -187,15 +187,17 @@ bool main_node_write_log(char * key, char * value)
 
     log->mateData.key_length = key_len;
     log->mateData.value_length = value_len;
+    log->mateData.id = global_id++;
     log->key_addr = NULL;       /*XXX*/
     log->value_addr = malloc(value_len);
-    log->id = global_id++;
+
+    // 注意log里面的key同样作为 log 的 data 一部分一起发送的 
     memcpy((char*)log + LOG_KEY_OFFSET(*log), key, key_len);
     memcpy(log->value_addr, value, value_len-1);
     memcpy(log->value_addr + value_len-1, &test, TAG);
 
-    MID_LOG("writer_thread: key_len is %d, value_len is %d, total move size is %d", \
-                            KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
+    MID_LOG("writer_thread: log id is [%d], key_len is %d, value_len is %d, total move size is %d", \
+                        log->mateData.id, KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
     int node_nums = server_instance->num_chain_clusters;
     int node_id = server_instance->server_id + 1;  // should be 0 + 1
@@ -232,7 +234,7 @@ bool main_node_write_log(char * key, char * value)
     // 不需要将log加入到 sending 队列中，主节点不需要网卡，直接发送等待第二个主节点的ack
     log->log_pos = log_pos;
     value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-    rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
+    rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), remote_buff);
 
     if(unlikely(log->log_pos == -1))
     {
@@ -294,11 +296,18 @@ void * NIC_thread(void * args)
             popQueue(sending_queue);
 
             value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
-            rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log));
+            rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), remote_buff);
 
             // free_log(log);
             MID_LOG("NIC_thread has write log [%d] data context :\"%s\"", count, log->value_addr);
             count++;
+
+            // 如果old等于sum, 就把old+1写入sum
+            if(!__sync_bool_compare_and_swap(&log->free_cas_flag , false, true))
+            {
+                MID_LOG("NIC_thread win cas of log [%d] !", log->mateData.id);
+                free_log(log);
+            }
         }
         if(count == REPEAT)
             break;
@@ -347,20 +356,20 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen,
 }
 
 // 写data数据，写到预留好的位置上去
-void rb_write_data (void *upper_api_buf, int log_pos, int dataLen)
+void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff)
 {
     // MID_LOG("rb_write_data log_pos is %u, dataLen is %u", log_pos, dataLen);
     int pos = log_pos;
 
-    if(pos + dataLen > remote_buff->size)
+    if(pos + dataLen > targetbuff->size)
     {
-        int left_size = remote_buff->size - pos;
-        dhmp_write(remote_buff->buff, upper_api_buf, left_size, pos, false);
+        int left_size = targetbuff->size - pos;
+        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         dataLen -= left_size;
         pos = 0;
     }
-    dhmp_write(remote_buff->buff, upper_api_buf, dataLen, pos, false);
+    dhmp_write(targetbuff->buff, upper_api_buf, dataLen, pos, false);
 }
 
 /* 
@@ -399,6 +408,7 @@ void* reader_thread(void * args)
             void *value_addr = top_log();
             // 将log加入到 sending 队列中
             send_log();
+
             /* do sommeting begin */
             MID_LOG("reader_thread has read log value is \"%s\"", value_addr);
             count++;
@@ -485,7 +495,7 @@ int read_log_key(int limits)
 
             rb_read(log, pos, sizeof(logMateData), true);
 
-             /*  如果key发生截断，则把key拷贝出来 */
+            /*  如果key发生截断，则把key拷贝出来 */
             key_pos = (pos + LOG_KEY_OFFSET(*log)) & (buff_size - 1);
             if(key_pos + KEY_LEN(*log) >= buff_size)
             {
@@ -500,7 +510,7 @@ int read_log_key(int limits)
                 log->key_addr = local_recv_buff->buff_addr + key_pos;
                 //MID_LOG("read_log_key: key is not cut, key is \"%s\"", log->key_addr);
             }
-                
+
             pos = (pos + LOG_NEXT_OFFSET(*log)) & (buff_size -1);
 
             /*  必须保证key是一个c语言风格的字符串 */
@@ -525,9 +535,17 @@ int read_log_key(int limits)
                 exit(0);
             }
 
-            MID_LOG("read_log_key: key is \"%s\", key len is %d, value len is %d", \
-                                    log->key_addr, log->mateData.key_length, log->mateData.value_length);
+            MID_LOG("read_log_key: log id is [%d], key is \"%s\", key len is %d, value len is %d", \
+                        log->mateData.id, log->key_addr, log->mateData.key_length, log->mateData.value_length);
+
+            if (log->mateData.id != global_read_log_nums)
+            {
+                ERROR_LOG("Unexpected log order, now log id is[%d], expected id is [%d]", log->mateData.id, read_num);
+                exit(0);
+            }
+
             read_num++;
+            global_read_log_nums++;
         }
     }
     local_recv_buff->rd_key_pointer = pos;
@@ -619,8 +637,14 @@ void clean_log()
         pthread_mutex_unlock(&dirty_lock);
 
         MID_LOG("clean_log: key is \"%s\"", log->key_addr);
-       
-        free_log(log);      /* 只有执行完后才可以释放log*/
+
+        /* 只有执行完后才可以释放log*/
+        // 如果old等于sum, 就把old+1写入sum
+        if(!__sync_bool_compare_and_swap(&log->free_cas_flag , false, true))
+        {
+            MID_LOG("reader_thread win cas of log [%d] !", log->mateData.id);
+            free_log(log);
+        }     
     }
 }
 
@@ -833,24 +857,7 @@ void buff_init()
         }
 
         wait_ack_queue = initQueue(sizeof(void*), QUEUE_SIZE * 10);
-        // 头节点
-        pthread_create(&writerForRemote, NULL, writer_thread, NULL);
-        // pthread_create(&nic_thead, NULL, NIC_thread, NULL);
         MID_LOG("HEAD node[%d] init scuesss!", server_instance->server_id);
-    }
-    else
-    {
-        if (node_class == NORMAL)
-        {
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-            pthread_create(&nic_thead, NULL, NIC_thread, NULL);
-            MID_LOG("NORMAL node[%d] init sucess!", server_instance->server_id);
-        }
-        else
-        {
-            pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-            MID_LOG("TAIL node[%d] init sucess!", server_instance->server_id);
-        }
     }
 }
 

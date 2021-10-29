@@ -88,7 +88,7 @@ out:
 	return NULL;
 }
 
-struct dhmp_transport* dhmp_node_select_by_id(int node_id)
+struct dhmp_transport* dhmp_client_node_select_by_id(int node_id)
 {
 	if (client_mgr->connect_trans[node_id] != NULL &&
 		(client_mgr->connect_trans[node_id]->trans_state ==
