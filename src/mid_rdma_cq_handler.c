@@ -39,6 +39,15 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
 			break;
 		case IBV_WC_RDMA_WRITE:
+#ifdef DHMP_MR_REUSE_POLICY
+			// 如果该区域的内存小于RDMA_SEND_THREASHOLD，则回收（不是释放）该块注册内存，用于下一次的数据传输
+			if (task_ptr->sge.length <= RDMA_SEND_THREASHOLD)
+			{
+				pthread_mutex_lock(&client_mgr->mutex_send_mr_list);
+				list_add(&task_ptr->smr->send_mr_entry, &client_mgr->send_mr_list);
+				pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+			}
+#endif
 			task_ptr->addr_info->write_flag=false;
 			task_ptr->done_flag=true;
 			break;
