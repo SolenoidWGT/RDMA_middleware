@@ -22,22 +22,59 @@
 
 	<server id="1">
         		<nic_name>ib0</nic_name>
-                <addr>10.10.10.1</addr>
-                <port>39599</port>
+                <addr>10.10.10.2</addr>
+                <port>39300</port>
 				<dram_node>0</dram_node>
 	</server>
+
+	<!-- <server id="2">
+        		<nic_name>ib0</nic_name>
+                <addr>10.10.10.2</addr>
+                <port>39599</port>
+				<dram_node>0</dram_node>
+	</server> -->
 
 	<server id="2">
         		<nic_name>ib0</nic_name>
                 <addr>10.10.10.2</addr>
-                <port>39599</port>
+                <port>39301</port>
 				<dram_node>0</dram_node>
 	</server>
 
 	<server id="3">
         		<nic_name>ib0</nic_name>
-                <addr>10.10.10.3</addr>
-                <port>39599</port>
+                <addr>10.10.10.2</addr>
+                <port>39302</port>
 				<dram_node>0</dram_node>
 	</server>
+
+	<server id="4">
+        		<nic_name>ib0</nic_name>
+                <addr>10.10.10.2</addr>
+                <port>39303</port>
+				<dram_node>0</dram_node>
+	</server>
+
+	<server id="5">
+        		<nic_name>ib0</nic_name>
+                <addr>10.10.10.2</addr>
+                <port>39304</port>
+				<dram_node>0</dram_node>
+	</server>
+
+
+	<server id="6">
+			<nic_name>ib0</nic_name>
+			<addr>10.10.10.2</addr>
+			<port>39305</port>
+			<dram_node>0</dram_node>
+	</server>
+
+	<server id="7">
+			<nic_name>ib0</nic_name>
+			<addr>10.10.10.2</addr>
+			<port>39306</port>
+			<dram_node>0</dram_node>
+	</server>
+
 </dhmp_config>
