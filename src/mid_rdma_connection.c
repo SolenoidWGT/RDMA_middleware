@@ -322,9 +322,12 @@ struct dhmp_transport* dhmp_is_exist_connection(struct sockaddr_in *sock)
 		
 		if(memcmp(cur_ip, travers_ip, max(cur_ip_len,travers_ip_len))==0)
 		{
-			INFO_LOG("find the same connection.");
-			res_trans=rdma_trans;
-			break;
+			if (rdma_trans->peer_addr.sin_port == sock->sin_port)
+			{
+				INFO_LOG("find the same connection.");
+				res_trans=rdma_trans;
+				break;
+			}
 		}
 	}
 	pthread_mutex_unlock(&server_instance->mutex_client_list);

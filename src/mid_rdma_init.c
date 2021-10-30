@@ -127,7 +127,11 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id, int no
 		return NULL;
 	}
 
-	dhmp_config_init(&client_mgr->config, true);
+	// dhmp_config_init(&client_mgr->config, true);
+
+	// 我们这里直接使用 server 创建的 config 结构体，而不是自己去初始化
+	memcpy(&client_mgr->config, &server_instance->config, sizeof(struct dhmp_config));
+
 	re = dhmp_context_init(&client_mgr->ctx);
 
 	/*init list about rdma device*/
@@ -211,7 +215,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id, int no
 struct dhmp_server * dhmp_server_init()
 {
 	int i,err=0;
-
+	memset((void*)used_id, -1, sizeof(int) * MAX_PORT_NUMS);
 	server_instance=(struct dhmp_server *)malloc(sizeof(struct dhmp_server));
 	if(!server_instance)
 	{
@@ -224,8 +228,7 @@ struct dhmp_server * dhmp_server_init()
 	dhmp_context_init(&server_instance->ctx);
 	server_instance->server_id = server_instance->config.curnet_id;
 	server_instance->num_chain_clusters = server_instance->config.nets_cnt;
-	MID_LOG("Server's node id is [%d], num_chain_clusters is [%d]", \
-					server_instance->server_id, server_instance->num_chain_clusters);
+
 
 	/*init client transport list*/
 	server_instance->cur_connections=0;
@@ -248,10 +251,28 @@ struct dhmp_server * dhmp_server_init()
 		ERROR_LOG("create rdma transport error.");
 		exit(-1);
 	}
-	err=dhmp_transport_listen(server_instance->listen_trans,
-					server_instance->config.net_infos[server_instance->config.curnet_id].port);
-	if(err)
-		exit(- 1);
+
+	while (1)
+	{
+		err=dhmp_transport_listen(server_instance->listen_trans,
+				server_instance->config.net_infos[server_instance->config.curnet_id].port);
+
+		if (err == 0)
+		{
+			INFO_LOG("Final curnet_id is %d, port is %u", server_instance->config.curnet_id, \
+					(unsigned int)server_instance->config.net_infos[server_instance->config.curnet_id].port);
+			
+			server_instance->server_id = server_instance->config.curnet_id;
+			MID_LOG("Server's node id is [%d], num_chain_clusters is [%d]", \
+					server_instance->server_id, server_instance->num_chain_clusters);
+			break;
+		}
+		else
+		{
+			used_id[used_nums++] = server_instance->config.curnet_id;
+			dhmp_set_curnode_id ( &server_instance->config );
+		}
+	}
 
 	return server_instance;
 }

@@ -29,11 +29,15 @@
 
 #define DHMP_WATCHER_STR "watcher"
 
+int used_id[MAX_PORT_NUMS];
+int used_nums = 0;
+
 static void dhmp_print_config ( struct dhmp_config* total_config_ptr )
 {
 	int i;
 	for ( i=0; i<total_config_ptr->nets_cnt; i++ )
 	{
+		INFO_LOG ( "--------------------------------------------------");
 		INFO_LOG ( "nic name %s",total_config_ptr->net_infos[i].nic_name );
 		INFO_LOG ( "addr %s",total_config_ptr->net_infos[i].addr );
 		INFO_LOG ( "port %d",total_config_ptr->net_infos[i].port );
@@ -42,6 +46,7 @@ static void dhmp_print_config ( struct dhmp_config* total_config_ptr )
 		INFO_LOG ( "knum %d",total_config_ptr->simu_infos[i].knum );
 		INFO_LOG ( "dram_node %d",total_config_ptr->mem_infos[i].dram_node );
 		INFO_LOG ( "nvm_node %d",total_config_ptr->mem_infos[i].nvm_node );
+		INFO_LOG ( "--------------------------------------------------");
 	} 
 }
 
@@ -166,9 +171,9 @@ static int dhmp_parse_server_node ( struct dhmp_config* config_ptr, int index, x
 	return 0;
 }
 
-static void dhmp_set_curnode_id ( struct dhmp_config* config_ptr )
+void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
 {
-	int socketfd, i, k, dev_num;
+	int socketfd, i, k, dev_num, j;
 	char buf[BUFSIZ];
 	const char* addr;
 	struct ifconf conf;
@@ -208,9 +213,23 @@ static void dhmp_set_curnode_id ( struct dhmp_config* config_ptr )
 			{
 				if ( !strcmp ( config_ptr->net_infos[i].addr, addr ) )
 				{
-					config_ptr->curnet_id=i;
-					res=true;
-					break;
+					INFO_LOG("i is [%d], addr is \"%s\", posr is [%d], addr is \"%s\"", i, config_ptr->net_infos[i].addr, config_ptr->net_infos[i].port, addr);
+					bool used = false;
+					for ( j=0; j< MAX_PORT_NUMS; j++)
+					{
+						if (used_id[j] == i)
+						{
+							used = true;
+							break;
+						}
+					}
+
+					if (!used)
+					{
+						config_ptr->curnet_id=i;
+						res=true;
+						break;
+					}
 				}
 			}
 		}
