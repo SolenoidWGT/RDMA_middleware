@@ -99,6 +99,7 @@ enum request_state{
 	RQ_INIT_STATE,
 	RQ_BUFFER_STATE,
 	RQ_FINISHED_LOOP,
+	RQ_PORT_NUMBER
 };
 
 enum response_state
@@ -108,6 +109,7 @@ enum response_state
 	RS_BUFFER_READY,
 	RS_BUFFER_NOREADY,
 	HYPERLOOP_ONE_LOOP,
+	RS_PORT_NUMBER
 };
 
 /*struct dhmp_msg:use for passing control message*/
@@ -271,5 +273,5 @@ struct dhmp_buff_response{
 };
 
 extern pthread_mutex_t buff_init_lock; 
-
+extern void printf_socket_addr_port(struct sockaddr_in * socket);
 #endif

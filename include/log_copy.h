@@ -172,6 +172,8 @@ static inline bool test_done(void * addr)
 
 
 extern unQueue* executing_queue;
-
+extern void * NIC_thread(void * args);
+extern void* reader_thread(void * args);
+extern void* writer_thread(void * args);
 
 #endif

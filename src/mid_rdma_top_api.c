@@ -331,6 +331,10 @@ dhmp_ack(int nodeid, enum request_state acktype, bool isClient)
 		}
 		ackwork.log_ptr = log->mateData.log_ptr;
 	}
+	else if(acktype == RQ_PORT_NUMBER)
+	{
+		ackwork.log_ptr = (void*) server_instance->server_id;
+	}
 
 	work->work_type=DHMP_WORK_ACK;
 	work->work_data=&ackwork;

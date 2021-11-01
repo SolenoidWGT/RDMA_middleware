@@ -233,6 +233,9 @@ static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 	struct dhmp_ack_request ack;
 	struct dhmp_ack_response response;
 	struct dhmp_msg res_msg;
+	struct dhmp_transport* expect_rdma_trans;
+	int peer_server_id;
+	int i;
 
 	memcpy(&ack, msg->data, sizeof(struct dhmp_ack_request));
 	response.node_id = server_instance->server_id;
@@ -262,6 +265,24 @@ static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 			
 			((logEntry *)(ack.log_ptr))->arrived_node_tail = true;
 			response.res_ack_flag = HYPERLOOP_ONE_LOOP;
+			break;
+		case RQ_PORT_NUMBER:
+			peer_server_id = (int) ack.log_ptr;
+	
+			INFO_LOG ( "Get ack request :[RQ_PORT_NUMBER] from node [%d], peer node_id is [%d]",  ack.node_id, peer_server_id);
+
+			pthread_mutex_lock(&server_instance->mutex_client_list);
+			list_for_each_entry(expect_rdma_trans, &server_instance->client_list, client_entry)
+			{
+				if (expect_rdma_trans == rdma_trans)
+				{
+					INFO_LOG("Catch trans peer node id is [%d], true id is [%d]", expect_rdma_trans->node_id, peer_server_id);
+					expect_rdma_trans->node_id = peer_server_id;
+				}
+			}
+			pthread_mutex_unlock(&server_instance->mutex_client_list);
+
+			response.res_ack_flag = RS_PORT_NUMBER;
 			break;
 		default:
 			ERROR_LOG ( "Get ack unkonwn response from node [%d]",  ack.node_id);
@@ -324,6 +345,9 @@ static void dhmp_ack_response_handler(struct dhmp_transport* rdma_trans,
 			break;
 		case HYPERLOOP_ONE_LOOP:
 			INFO_LOG ( "Get ack response :[HYPERLOOP_ONE_LOOP] from node [%d]",  response_msg.node_id);
+			break;
+		case RS_PORT_NUMBER:
+			INFO_LOG ( "Get ack response :[RS_PORT_NUMBER] from node [%d]",  response_msg.node_id);
 			break;
 		default:
 			ERROR_LOG ( "Unkown middware response ack from node [%d]", response_msg.node_id);

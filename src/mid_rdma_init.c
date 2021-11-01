@@ -207,6 +207,25 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id, int no
 	pthread_mutex_init(&client_mgr->mutex_work_list, NULL);
 	INIT_LIST_HEAD(&client_mgr->work_list);
 	pthread_create(&client_mgr->work_thread, NULL, dhmp_work_handle_thread, (void*)client_mgr);
+
+	if (node_class == HEAD)
+	{
+		// 这时候需要主动向对方 server 发送自己的 server id
+		for(i=0; i<client_mgr->config.nets_cnt; i++)
+		{
+			/*server_instance skip himself to avoid connecting himself*/
+			if(server_instance->server_id== i){
+				continue;
+			}
+			dhmp_ack(i, RQ_PORT_NUMBER ,true);
+		}
+	}
+	else if(node_class == NORMAL)
+	{
+		// 向其下游节点的 server 发送自己的 server id
+		dhmp_ack(server_instance->server_id+1, RQ_PORT_NUMBER ,true);
+	}
+
 	return client_mgr;
 }
 

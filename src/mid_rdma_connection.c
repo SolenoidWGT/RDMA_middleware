@@ -12,6 +12,12 @@
 
 void dhmp_event_channel_handler(int fd, void* data);
 
+void printf_socket_addr_port(struct sockaddr_in * socket)
+{
+	char cur_ip[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &(socket->sin_addr), cur_ip, sizeof(cur_ip));
+	INFO_LOG("URL addr is %s, port is %u", cur_ip, ntohs(socket->sin_port));
+}
 
 int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port)
 {
@@ -68,7 +74,7 @@ static int dhmp_port_uri_transfer(struct dhmp_transport* rdma_trans,
 
 	memset(&peer_addr,0,sizeof(peer_addr));
 	peer_addr.sin_family=AF_INET;
-	peer_addr.sin_port=htons(port);
+	peer_addr.sin_port=htons((uint16_t)port);
 
 	retval=inet_pton(AF_INET, url, &peer_addr.sin_addr);
 	if(retval<=0)
@@ -79,6 +85,22 @@ static int dhmp_port_uri_transfer(struct dhmp_transport* rdma_trans,
 
 	memcpy(&rdma_trans->peer_addr, &peer_addr, sizeof(struct sockaddr_in));
 
+	// 我们需要填充本地server的监听端口号，用以区分相同ip不同port的server id
+	/*
+	retval=inet_pton(AF_INET, "10.10.10.2", &local_addr.sin_addr);
+	if(retval<=0)
+	{
+		ERROR_LOG("IP Transfer Error.");
+		goto out;
+	}
+
+	memcpy(&rdma_trans->local_addr, &local_addr, sizeof(struct sockaddr_in));
+
+	INFO_LOG("**************************************************************");
+	printf_socket_addr_port(&rdma_trans->peer_addr);
+	printf_socket_addr_port(&rdma_trans->local_addr);
+	INFO_LOG("**************************************************************");
+	*/
 out:
 	return retval;
 }
@@ -111,14 +133,16 @@ int dhmp_transport_connect(struct dhmp_transport* rdma_trans,
 		goto clean_rdmatrans;
 	}
 
+	// 之前希望的是加上本地的端口和ip信息供server去识别相同ip不同端口号的机器
+	// 但是实际上发现 src_addr 目前似乎只能为 NULL， 为NULL会随机为其分配一个ip和端口号
+	// 我目前不会为其指定一个ip和端口，所以这种方法放弃，改为建立连接后使用ACK去确认server下面的clinet的server_id
 	retval=rdma_resolve_addr(rdma_trans->cm_id, NULL,
 							(struct sockaddr*) &rdma_trans->peer_addr,
 							ADDR_RESOLVE_TIMEOUT);
 
-
 	if(retval)
 	{
-		ERROR_LOG("RDMA Device resolve addr error.");
+		ERROR_LOG("RDMA Device resolve addr error, retval code is %d, error reason is %s", errno, strerror(errno));
 		goto clean_cmid;
 	}
 	
@@ -507,20 +531,33 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	new_trans->cm_id=event->id;
 
 	/* 记录对端 nodeid */
+	/*
 	char cur_ip[INET_ADDRSTRLEN];
 	int cur_ip_len, cluster_ip_len;
 	struct sockaddr_in *sock = &event->id->route.addr.dst_sin;
+	uint16_t peer_dest_port = ntohs(rdma_get_dst_port(rdma_trans->cm_id));
+	uint16_t peer_src_port = ntohs(rdma_get_src_port(rdma_trans->cm_id));
+
+	uint16_t id_dest_port  = ntohs(sock->sin_port);
+	uint16_t id_src_port  = ntohs(rdma_get_src_port(event->id));
+
+	printf_socket_addr_port(&rdma_trans->local_addr);
+	printf_socket_addr_port(&rdma_trans->peer_addr);
+	
 	inet_ntop(AF_INET, &(sock->sin_addr), cur_ip, sizeof(cur_ip));
 	cur_ip_len=strlen(cur_ip);
 
-	INFO_LOG("cur ip is \"%s\" ", cur_ip);
+	INFO_LOG("cur ip is \"%s\", cur peer_dest_port is %u, peer_src_port is %u, cur loacl_dest_port is %u, loacl_src_port is %u",\
+				 cur_ip, peer_dest_port, peer_src_port, id_dest_port, id_src_port);
+
 	for ( i=0; i<DHMP_SERVER_NODE_NUM; i++ )
 	{
 		char * cluster_node_ip = server_instance->config.net_infos[i].addr;
 		cluster_ip_len = strlen(cluster_node_ip);
 
-		INFO_LOG("ip is \"%s\" ", cluster_node_ip);
-		if(memcmp(cur_ip, cluster_node_ip, max(cur_ip_len,cluster_ip_len))==0)
+		INFO_LOG("ip is \"%s\" port is %u", cluster_node_ip, (uint16_t)server_instance->config.net_infos[i].port);
+		if(memcmp(cur_ip, cluster_node_ip, max(cur_ip_len,cluster_ip_len))==0 &&
+			(uint16_t)server_instance->config.net_infos[i].port == peer_src_port)
 		{
 			new_trans->node_id = i;
 			INFO_LOG("Catch node is %d ", new_trans->node_id);
@@ -528,7 +565,7 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	} 
 
 	INFO_LOG("rdma_trans->node_id is [%d]!", rdma_trans->node_id);
-
+*/
 	event->id->context=new_trans;
 	
 	retval=dhmp_qp_create(new_trans);
@@ -585,7 +622,15 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 			sizeof(rdma_trans->peer_addr));
 	
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTED;
-	INFO_LOG("on_cm_established sucess!");
+
+	/*
+	INFO_LOG("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+	printf_socket_addr_port(&rdma_trans->local_addr);
+	printf_socket_addr_port(&rdma_trans->peer_addr);
+	INFO_LOG("Node [%d] on_cm_established sucess!", server_instance->server_id);
+	INFO_LOG("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+	*/
+	
 	return retval;
 }
 
