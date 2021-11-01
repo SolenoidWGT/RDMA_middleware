@@ -30,9 +30,17 @@ struct dhmp_client{
 	
 	int fifo_node_index;	/*use for node select*/
 
-	pthread_t work_thread;
+	pthread_t work_thread1;
+	pthread_t work_thread2;
+	pthread_t work_thread3;
+	pthread_t work_thread4;
+	pthread_t work_thread5;
+	pthread_t work_thread6;
+
 	pthread_mutex_t mutex_work_list;
+	pthread_mutex_t mutex_asyn_work_list;
 	struct list_head work_list;
+	struct list_head work_asyn_list;
 
 	struct dhmp_send_mr* read_mr[DHMP_SERVER_NODE_NUM];
 };

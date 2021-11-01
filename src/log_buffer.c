@@ -65,6 +65,9 @@ int node_class = -1;
 void * DEBUG_UPPER_BUFFER;
 pthread_mutex_t dirty_lock;
 
+int wait_work_counter = 0;
+int wait_work_expect_counter = 0;
+
 void rb_write_data (void *upper_api_buf, int log_pos, int dataLen, RemoteRingbuff * targetbuff);
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff * targetbuff);
 bool rb_read (void *buf, int start, int len, bool isCopy);
@@ -84,7 +87,7 @@ int get_node_class()
 
 void update_wr_remote(RemoteRingbuff * rb)
 {
-    dhmp_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
+    dhmp_asyn_write(rb->buff_mate, &(rb->wr_pointer), sizeof(int), 0, true);
 }
 
 bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
@@ -162,6 +165,8 @@ void* writer_thread(void * args)
     count = 0;
     valueQueue = initQueue(sizeof(void*), 1024);
     MID_LOG("------------------------Write thread create---------------------------------------\n");
+    wait_work_counter=0;
+    wait_work_expect_counter=0;
 	while(count < REPEAT)
 	{
         char * key = NAME_LISTS[count];
@@ -172,6 +177,35 @@ void* writer_thread(void * args)
 
     MID_LOG("Main ndoe writer_thread write all mate data and exit!");
 	pthread_exit(0);
+}
+
+void wait_asyn_finish()
+{
+    while(1)
+    {
+        int target = __sync_fetch_and_add(&wait_work_expect_counter, 0);
+        int actual = __sync_fetch_and_add(&wait_work_counter, 0);
+        MID_LOG("target is %d, actual is %d", target, actual);
+        if (target == actual)
+        {
+            struct dhmp_work * work = NULL, * tp_wprk = NULL;
+            pthread_mutex_lock(&client_mgr->mutex_asyn_work_list);
+            list_for_each_entry_safe(work, tp_wprk, &client_mgr->work_asyn_list , work_entry)
+            {
+                struct dhmp_rw_work * wwork = (struct dhmp_rw_work *) (work->work_data);
+                while(!wwork->done_flag);
+                MID_LOG("dhmp_rw_work at addr %p finished", wwork->dhmp_addr);
+                list_del(&work->work_entry);
+                free(wwork);
+                free(work);
+
+                __sync_fetch_and_sub(&wait_work_expect_counter, 1);
+                __sync_fetch_and_sub(&wait_work_counter, 1);
+            }
+            pthread_mutex_unlock(&client_mgr->mutex_asyn_work_list);
+            break;
+        }
+    }
 }
 
 // 只有头节点需要负责发送元数据
@@ -200,18 +234,20 @@ bool main_node_write_log(char * key, char * value)
                         log->mateData.id, KEY_LEN(*log), VALUE_LEN(*log), send_len + value_len);
     
     int node_nums = server_instance->num_chain_clusters;
-    int node_id = server_instance->server_id + 1;  // should be 0 + 1
+    int node_id;  // should be 0 + 1
     int log_pos = -1;
-    for (; node_id < node_nums; node_id++)
+
+    // 这里只检查一次，我们认为各节点处理速度是一样的（Fix me ）
+    if(!check_remote_size(remote_buffs_list[server_instance->server_id + 1], send_len + value_len))
+    {
+        MID_LOG("remote buffer is full, please retry!");
+        return false;
+    }
+
+    for (node_id = server_instance->server_id + 1 ; node_id < node_nums; node_id++)
     {
         int mate_pos;
         RemoteRingbuff* rbuff = remote_buffs_list[node_id];
-
-        if(!check_remote_size(rbuff, send_len + value_len))
-        {
-            MID_LOG("remote buffer is full, please retry!");
-            return false;
-        }
 
         // 这里有一个值得讨论的点，所有节点返回的 log->log_pos 是不是都是一样的
         // 理论上来说各个副本节点的最前指针的位置应该是一致的，但是由于各个节点的处理速度不同
@@ -229,6 +265,16 @@ bool main_node_write_log(char * key, char * value)
         }
     }
     assert(log_pos != -1); 
+
+    wait_asyn_finish();
+
+    for (node_id = server_instance->server_id + 1 ; node_id < node_nums; node_id++)
+    {
+        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
+        update_wr_remote(rbuff);
+    }
+
+    wait_asyn_finish();
 
     // 头节点元数据和数据一起发送给下一个节点（头节点2）
     // 不需要将log加入到 sending 队列中，主节点不需要网卡，直接发送等待第二个主节点的ack
@@ -319,26 +365,25 @@ void * NIC_thread(void * args)
 // 写元数据，并提前移动远端写指针，预留出data的位置
 // 修改 remote_buff 应该作为一个参数传入 rb_write_mate 函数
 // 头节点需要使用星型结构去写元数据
-/* SB Huawai， 我日你先人 */
 int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, 
                         RemoteRingbuff * targetbuff)
 {
     int totalLen = mateLen + dataLen;
     int log_pos =  targetbuff->wr_pointer;      // 当前 log 写入位置
-    if(!check_remote_size(targetbuff, totalLen))
-        return -1;
+    // if(!check_remote_size(targetbuff, totalLen))
+    //     return -1;
 
     // 先写 mate 数据
     int pos = targetbuff->wr_pointer;
     if(pos + mateLen > targetbuff->size)
     {
         int left_size = targetbuff->size - pos;
-        dhmp_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
+        dhmp_asyn_write(targetbuff->buff, upper_api_buf, left_size, pos, false);
         upper_api_buf += left_size;
         mateLen -= left_size;
         pos = 0;
     }
-    dhmp_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
+    dhmp_asyn_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
     update_wr_local(targetbuff, pos+mateLen);
 
     // 再移动远端写偏移量
@@ -351,7 +396,7 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen,
         pos = 0;
     }
     update_wr_local(targetbuff, pos+dataLen);
-    update_wr_remote(targetbuff);
+    // update_wr_remote(targetbuff);
     return log_pos;
 }
 

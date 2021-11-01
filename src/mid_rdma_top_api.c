@@ -330,3 +330,45 @@ dhmp_ack(int nodeid, enum request_state acktype)
 	return re;
 }
 
+// WGT
+int
+dhmp_asyn_write(void *dhmp_addr, void * local_buf, size_t count, 
+						off_t offset, bool is_atomic)		
+{
+	struct dhmp_transport *rdma_trans=NULL;
+	struct dhmp_rw_work *wwork;
+	struct dhmp_work *work;
+
+	rdma_trans=dhmp_get_trans_from_addr(dhmp_addr);
+	if(!rdma_trans||rdma_trans->trans_state!=DHMP_TRANSPORT_STATE_CONNECTED)
+	{
+		ERROR_LOG("rdma connection error.");
+		return -1;
+	}
+
+	wwork = malloc(sizeof(struct dhmp_rw_work));
+	work  = malloc(sizeof(struct dhmp_work));
+	if(!work)
+	{
+		ERROR_LOG("alloc memory error.");
+		return -1;
+	}
+	wwork->done_flag=false;
+	wwork->length=count;
+	wwork->local_addr=local_buf;
+	wwork->dhmp_addr= dhmp_addr; 
+	wwork->rdma_trans=rdma_trans;
+	wwork->offset = offset;		// WGT
+	wwork->is_atomic = is_atomic;// wgt
+			
+	work->work_type=DHMP_ASYN_WORK_WRITE;
+	work->work_data=(void*)wwork;
+	
+	pthread_mutex_lock(&client_mgr->mutex_work_list);
+	list_add_tail(&work->work_entry, &client_mgr->work_list);
+	pthread_mutex_unlock(&client_mgr->mutex_work_list);
+
+	__sync_fetch_and_add(&wait_work_expect_counter, 1);
+
+	return 0;
+}

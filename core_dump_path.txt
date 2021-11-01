@@ -1,0 +1,3 @@
+sudo sh -c "echo "/home/gtwang/Aug_rdma_mid/RDMA_middleware/corefile-%e-%p-%t" > /proc/sys/kernel/core_pattern"
+sudo sh -c "echo "/home/gtwang/Aug_rdma_mid/hyperloop_cmp/corefile-%e-%p-%t" > /proc/sys/kernel/core_pattern"
+sudo sh -c "echo "/home/gtwang/Aug_rdma_mid/2pc_cmp/corefile-%e-%p-%t" > /proc/sys/kernel/core_pattern"
