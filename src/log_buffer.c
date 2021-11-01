@@ -218,6 +218,7 @@ bool main_node_write_log(char * key, char * value)
     size_t key_len = strlen(key) + 1;
     size_t value_len = strlen(value) + 1 + TAG;
     size_t send_len = sizeof(logEntry) + key_len;
+    const char ack_msg_2pc[64];
     logEntry *log = (logEntry*) malloc(send_len);
 
     log->mateData.key_length = key_len;
@@ -271,6 +272,14 @@ bool main_node_write_log(char * key, char * value)
         RemoteRingbuff* rbuff = remote_buffs_list[node_id];
         value_pos = (log->log_pos + LOG_VALUE_OFFSET(*log)) & (remote_buff->size - 1);
         rb_write_data(log->value_addr, value_pos, VALUE_LEN(*log), rbuff);
+    }
+
+    wait_asyn_finish();
+
+    for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
+    {
+        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
+        dhmp_asyn_write(rbuff->buff, (void*)ack_msg_2pc, 64, rbuff->wr_pointer, false);
     }
 
     wait_asyn_finish();
