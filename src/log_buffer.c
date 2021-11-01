@@ -320,8 +320,8 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen,
 {
     int totalLen = mateLen + dataLen;
     int log_pos =  targetbuff->wr_pointer;      // 当前 log 写入位置
-    if(!check_remote_size(targetbuff, totalLen))
-        return -1;
+    // if(!check_remote_size(targetbuff, totalLen))
+    //     return -1;
 
     // 先写 mate 数据
     int pos = targetbuff->wr_pointer;
