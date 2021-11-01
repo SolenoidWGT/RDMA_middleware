@@ -9,7 +9,7 @@
 #ifndef LOG_COPY_H
 #define LOG_COPY_H
 
-#define TOTAL_SIZE 1024*1024*64
+#define TOTAL_SIZE 1024*1024*1024
 
 #include "dhmp_transport.h"
 #include "mid_api.h"

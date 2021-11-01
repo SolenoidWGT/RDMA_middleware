@@ -752,7 +752,7 @@ bool rb_write (void *upper_api_buf, int len)
 
 void buff_init()
 {
-    pthread_t writerForRemote, readerForLocal, nic_thead;
+    pthread_t nic_thead;
 
     value_peeding_queue = initQueue(sizeof(void*), QUEUE_SIZE);
     executing_queue = initQueue(sizeof(void*), QUEUE_SIZE);
@@ -859,6 +859,8 @@ void buff_init()
         wait_ack_queue = initQueue(sizeof(void*), QUEUE_SIZE * 10);
         MID_LOG("HEAD node[%d] init scuesss!", server_instance->server_id);
     }
+    else if (node_class == NORMAL)
+        pthread_create(&nic_thead, NULL, NIC_thread, NULL);
 }
 
 /*  

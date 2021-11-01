@@ -32,7 +32,7 @@
 
 int main(int argc,char *argv[])
 {
-	pthread_t writerForRemote, readerForLocal, nic_thead;
+	pthread_t writerForRemote, readerForLocal;
 	struct dhmp_server * mid_server;
 
 	/* 
@@ -79,7 +79,6 @@ int main(int argc,char *argv[])
 	if (node_class == NORMAL)
 	{
 		pthread_create(&readerForLocal, NULL, reader_thread, NULL);
-		pthread_create(&nic_thead, NULL, NIC_thread, NULL);
 		MID_LOG("NORMAL node[%d] init sucess!", server_instance->server_id);
 	}
 	else
