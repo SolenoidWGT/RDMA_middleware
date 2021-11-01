@@ -208,6 +208,9 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, int server_id, int no
 	pthread_create(&client_mgr->work_thread1, NULL, dhmp_work_handle_thread, (void*)client_mgr);
 	pthread_create(&client_mgr->work_thread2, NULL, dhmp_work_handle_thread, (void*)client_mgr);
 	pthread_create(&client_mgr->work_thread3, NULL, dhmp_work_handle_thread, (void*)client_mgr);
+	pthread_create(&client_mgr->work_thread4, NULL, dhmp_work_handle_thread, (void*)client_mgr);
+	pthread_create(&client_mgr->work_thread5, NULL, dhmp_work_handle_thread, (void*)client_mgr);
+	pthread_create(&client_mgr->work_thread6, NULL, dhmp_work_handle_thread, (void*)client_mgr);
 
 	return client_mgr;
 }
