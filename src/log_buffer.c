@@ -87,7 +87,7 @@ int get_node_class()
 
 void update_wr_remote(RemoteRingbuff * rb)
 {
-    dhmp_write(rb->buff_mate, LOCAL_WR_PTR_ADDR, sizeof(int), 0, true);
+    dhmp_asyn_write(rb->buff_mate, &(rb->wr_pointer), sizeof(int), 0, true);
 }
 
 bool check_remote_size(RemoteRingbuff *rb, int waitWriteLen)
@@ -238,6 +238,18 @@ bool main_node_write_log(char * key, char * value)
     int node_nums = server_instance->num_chain_clusters;
     int node_id;  // should be 0 + 1
     int log_pos = -1;
+
+    for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
+    {
+        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
+
+        if(!check_remote_size(rbuff, send_len + value_len))
+        {
+            ERROR_LOG("remote buffer is full, please retry!");
+            exit(0);
+        }
+    }
+
     for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
     {
         int mate_pos;
@@ -267,6 +279,17 @@ bool main_node_write_log(char * key, char * value)
 
     assert(log_pos != -1); 
     log->log_pos = log_pos;
+
+    wait_asyn_finish();
+
+    for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
+    {
+        RemoteRingbuff* rbuff = remote_buffs_list[node_id];
+        update_wr_remote(rbuff);
+    }
+
+    wait_asyn_finish();
+
     for (node_id = server_instance->server_id + 1; node_id < node_nums; node_id++)
     {
         RemoteRingbuff* rbuff = remote_buffs_list[node_id];
@@ -358,8 +381,8 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff
 {
     int totalLen = mateLen + dataLen;
     int log_pos =  targetbuff->wr_pointer;      // 当前 log 写入位置
-    if(!check_remote_size(targetbuff, totalLen))
-        return -1;
+    // if(!check_remote_size(targetbuff, totalLen))
+    //     return -1;
 
     // 先写 mate 数据
     int pos = targetbuff->wr_pointer;
@@ -371,7 +394,7 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff
         mateLen -= left_size;
         pos = 0;
     }
-    dhmp_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
+    dhmp_asyn_write(targetbuff->buff, upper_api_buf, mateLen, pos, false);
     update_wr_local(targetbuff, pos+mateLen);
 
     // 再移动远端写偏移量
@@ -384,7 +407,7 @@ int rb_write_mate (void *upper_api_buf, int mateLen, int dataLen, RemoteRingbuff
         pos = 0;
     }
     update_wr_local(targetbuff, pos+dataLen);
-    update_wr_remote(targetbuff);
+//    update_wr_remote(targetbuff);
     return log_pos;
 }
 
